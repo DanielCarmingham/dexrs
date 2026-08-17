@@ -10,4 +10,5 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Command {
     Dir,
+    Init,
 }

@@ -7,12 +7,10 @@ incomplete.
 
 ## Active
 
-- [ ] Task 2: Implement store discovery and initialization
+- [ ] Task 3: Implement dex-compatible task data types and JSONL parsing
 
 ## Backlog
 
-- [ ] Implement project-local store discovery
-- [ ] Implement `init` and `dir`
 - [ ] Implement dex-compatible task data types and JSONL parsing
 - [ ] Implement cross-process locked store transactions
 - [ ] Implement atomic JSONL writes
@@ -43,3 +41,5 @@ incomplete.
 - [x] Write the dexrs MVP design spec
 - [x] Write the dexrs MVP implementation plan
 - [x] Scaffold the Rust CLI project
+- [x] Implement project-local store discovery
+- [x] Implement `init` and `dir`

@@ -1,5 +1,6 @@
 mod cli;
 mod commands;
+mod store;
 
 use std::ffi::OsString;
 use std::io::{self, Write};
