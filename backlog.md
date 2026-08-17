@@ -7,11 +7,10 @@ incomplete.
 
 ## Active
 
-- [ ] Task 3: Implement dex-compatible task data types and JSONL parsing
+- [ ] Task 4: Implement locked transactions and atomic writes
 
 ## Backlog
 
-- [ ] Implement dex-compatible task data types and JSONL parsing
 - [ ] Implement cross-process locked store transactions
 - [ ] Implement atomic JSONL writes
 - [ ] Implement core task relationship validation
@@ -43,3 +42,5 @@ incomplete.
 - [x] Scaffold the Rust CLI project
 - [x] Implement project-local store discovery
 - [x] Implement `init` and `dir`
+- [x] Implement dex-compatible task data types and JSONL parsing
+- [x] Add CLI golden tests against dex-compatible fixtures
