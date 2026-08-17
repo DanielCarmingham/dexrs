@@ -1,4 +1,5 @@
 use dexrs::task::{Task, parse_tasks_jsonl};
+use predicates::prelude::PredicateBooleanExt;
 
 fn read_tasks(store: &std::path::Path) -> Vec<Task> {
     parse_tasks_jsonl(&std::fs::read_to_string(store.join("tasks.jsonl")).unwrap()).unwrap()
@@ -188,6 +189,124 @@ fn delete_remove_and_rm_delete_tasks() {
     }
 
     assert!(read_tasks(&store).is_empty());
+}
+
+#[test]
+fn status_reports_empty_and_non_empty_counts() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+
+    assert_cmd::Command::cargo_bin("dexrs")
+        .unwrap()
+        .env("DEX_STORAGE_PATH", &store)
+        .arg("status")
+        .assert()
+        .success()
+        .stdout("0 todo, 0 in progress, 0 done\n");
+
+    assert_cmd::Command::cargo_bin("dexrs")
+        .unwrap()
+        .env("DEX_STORAGE_PATH", &store)
+        .args(["create", "Visible"])
+        .assert()
+        .success();
+    let id = read_tasks(&store)[0].id.clone();
+    assert_cmd::Command::cargo_bin("dexrs")
+        .unwrap()
+        .env("DEX_STORAGE_PATH", &store)
+        .args(["start", &id])
+        .assert()
+        .success();
+
+    assert_cmd::Command::cargo_bin("dexrs")
+        .unwrap()
+        .env("DEX_STORAGE_PATH", &store)
+        .arg("status")
+        .assert()
+        .success()
+        .stdout("0 todo, 1 in progress, 0 done\n");
+}
+
+#[test]
+fn list_and_ls_print_status_icons() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+
+    assert_cmd::Command::cargo_bin("dexrs")
+        .unwrap()
+        .env("DEX_STORAGE_PATH", &store)
+        .args(["create", "List me"])
+        .assert()
+        .success();
+
+    assert_cmd::Command::cargo_bin("dexrs")
+        .unwrap()
+        .env("DEX_STORAGE_PATH", &store)
+        .arg("list")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("[ ]").and(predicates::str::contains("List me")));
+
+    assert_cmd::Command::cargo_bin("dexrs")
+        .unwrap()
+        .env("DEX_STORAGE_PATH", &store)
+        .arg("ls")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("List me"));
+}
+
+#[test]
+fn show_prints_task_details_by_id() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+
+    assert_cmd::Command::cargo_bin("dexrs")
+        .unwrap()
+        .env("DEX_STORAGE_PATH", &store)
+        .args(["create", "Show me", "--description", "Details"])
+        .assert()
+        .success();
+    let id = read_tasks(&store)[0].id.clone();
+
+    assert_cmd::Command::cargo_bin("dexrs")
+        .unwrap()
+        .env("DEX_STORAGE_PATH", &store)
+        .args(["show", &id])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(&id).and(predicates::str::contains("Details")));
+}
+
+#[test]
+fn read_commands_support_json_output() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+
+    assert_cmd::Command::cargo_bin("dexrs")
+        .unwrap()
+        .env("DEX_STORAGE_PATH", &store)
+        .args(["create", "Json task"])
+        .assert()
+        .success();
+    let id = read_tasks(&store)[0].id.clone();
+
+    for args in [
+        vec!["status", "--json"],
+        vec!["list", "--json"],
+        vec!["show", &id, "--json"],
+    ] {
+        let output = assert_cmd::Command::cargo_bin("dexrs")
+            .unwrap()
+            .env("DEX_STORAGE_PATH", &store)
+            .args(args)
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        serde_json::from_slice::<serde_json::Value>(&output).unwrap();
+    }
 }
 
 #[test]

@@ -43,4 +43,18 @@ pub enum Command {
     Delete {
         id: String,
     },
+    Status {
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(alias = "ls")]
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    Show {
+        id: String,
+        #[arg(long)]
+        json: bool,
+    },
 }

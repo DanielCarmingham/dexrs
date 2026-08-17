@@ -2,6 +2,7 @@ use std::ffi::OsString;
 use std::io::Write;
 
 use clap::Parser;
+use serde_json::json;
 
 use crate::cli::{Cli, Command};
 use crate::store;
@@ -120,6 +121,98 @@ where
             writeln!(stdout, "deleted {id}")?;
             Ok(0)
         }
+        Command::Status { json } => {
+            let store = resolved_store()?;
+            let tasks = store::read_tasks(&store)?;
+            let counts = status_counts(&tasks);
+            if json {
+                writeln!(
+                    stdout,
+                    "{}",
+                    serde_json::to_string(&json!({
+                        "todo": counts.todo,
+                        "in_progress": counts.in_progress,
+                        "done": counts.done,
+                    }))?
+                )?;
+            } else {
+                writeln!(
+                    stdout,
+                    "{} todo, {} in progress, {} done",
+                    counts.todo, counts.in_progress, counts.done
+                )?;
+            }
+            Ok(0)
+        }
+        Command::List { json } => {
+            let store = resolved_store()?;
+            let mut tasks = store::read_tasks(&store)?;
+            tasks.sort_by(|left, right| left.id.cmp(&right.id));
+            if json {
+                writeln!(stdout, "{}", serde_json::to_string(&tasks)?)?;
+            } else {
+                for task in tasks {
+                    writeln!(stdout, "{} {} {}", status_icon(&task), task.id, task.name)?;
+                }
+            }
+            Ok(0)
+        }
+        Command::Show { id, json } => {
+            let store = resolved_store()?;
+            let tasks = store::read_tasks(&store)?;
+            let task = tasks
+                .iter()
+                .find(|task| task.id == id)
+                .ok_or_else(|| anyhow::anyhow!("task {id} not found"))?;
+            if json {
+                writeln!(stdout, "{}", serde_json::to_string(task)?)?;
+            } else {
+                writeln!(stdout, "{} {} {}", status_icon(task), task.id, task.name)?;
+                if let Some(description) = &task.description {
+                    writeln!(stdout, "{description}")?;
+                }
+                if let Some(priority) = &task.priority {
+                    writeln!(stdout, "priority: {priority}")?;
+                }
+            }
+            Ok(0)
+        }
+    }
+}
+
+struct StatusCounts {
+    todo: usize,
+    in_progress: usize,
+    done: usize,
+}
+
+fn status_counts(tasks: &[Task]) -> StatusCounts {
+    let mut counts = StatusCounts {
+        todo: 0,
+        in_progress: 0,
+        done: 0,
+    };
+
+    for task in tasks {
+        if task.completed {
+            counts.done += 1;
+        } else if task.started_at.is_some() {
+            counts.in_progress += 1;
+        } else {
+            counts.todo += 1;
+        }
+    }
+
+    counts
+}
+
+fn status_icon(task: &Task) -> &'static str {
+    if task.completed {
+        "[x]"
+    } else if task.started_at.is_some() {
+        "[>]"
+    } else {
+        "[ ]"
     }
 }
 

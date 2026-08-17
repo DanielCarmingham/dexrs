@@ -7,12 +7,10 @@ incomplete.
 
 ## Active
 
-- [ ] Task 7: Implement read commands and output
+- [ ] Task 8: Final verification and install documentation
 
 ## Backlog
 
-- [ ] Implement `list` / `ls`
-- [ ] Implement `show`
 - [ ] Add the `dex` compatibility shim
 - [ ] Add CLI golden tests against dex-compatible fixtures
 - [ ] Add concurrent writer regression tests
@@ -45,3 +43,6 @@ incomplete.
 - [x] Implement `complete` / `done`
 - [x] Implement `edit` / `update`
 - [x] Implement `delete` / `rm` / `remove`
+- [x] Implement `list` / `ls`
+- [x] Implement `show`
+- [x] Implement `status`
