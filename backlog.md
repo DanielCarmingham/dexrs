@@ -7,13 +7,11 @@ incomplete.
 
 ## Active
 
-- [ ] Task 8: Final verification and install documentation
+No active implementation task.
 
 ## Backlog
 
-- [ ] Add the `dex` compatibility shim
-- [ ] Add CLI golden tests against dex-compatible fixtures
-- [ ] Add concurrent writer regression tests
+No MVP backlog items.
 
 ## Deferred
 
@@ -46,3 +44,5 @@ incomplete.
 - [x] Implement `list` / `ls`
 - [x] Implement `show`
 - [x] Implement `status`
+- [x] Add the `dex` compatibility shim
+- [x] Add install documentation

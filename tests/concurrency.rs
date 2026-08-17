@@ -1,5 +1,6 @@
 use dexrs::store::{read_tasks, transact};
 use dexrs::task::Task;
+use std::process::{Command, Stdio};
 
 fn task(id: &str) -> Task {
     Task {
@@ -70,6 +71,40 @@ fn concurrent_transactions_keep_all_tasks() {
             tasks
                 .iter()
                 .any(|task| task.id == format!("task{index:04}"))
+        );
+    }
+}
+
+#[test]
+fn concurrent_create_processes_keep_all_tasks() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join(".dex");
+
+    let mut children = Vec::new();
+    for index in 0..20 {
+        let mut command = Command::new(assert_cmd::cargo::cargo_bin("dexrs"));
+        children.push(
+            command
+                .env("DEX_STORAGE_PATH", &store)
+                .args(["create", &format!("Process task {index}")])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+    }
+
+    for mut child in children {
+        assert!(child.wait().unwrap().success());
+    }
+
+    let tasks = read_tasks(&store).unwrap();
+    assert_eq!(tasks.len(), 20);
+    for index in 0..20 {
+        assert!(
+            tasks
+                .iter()
+                .any(|task| task.name == format!("Process task {index}"))
         );
     }
 }

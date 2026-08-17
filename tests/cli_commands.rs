@@ -310,6 +310,33 @@ fn read_commands_support_json_output() {
 }
 
 #[test]
+fn dex_binary_matches_dexrs_for_dir() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+
+    let dexrs_output = assert_cmd::Command::cargo_bin("dexrs")
+        .unwrap()
+        .env("DEX_STORAGE_PATH", &store)
+        .arg("dir")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let dex_output = assert_cmd::Command::cargo_bin("dex")
+        .unwrap()
+        .env("DEX_STORAGE_PATH", &store)
+        .arg("dir")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_eq!(dex_output, dexrs_output);
+}
+
+#[test]
 fn init_creates_store_directory_and_empty_task_file() {
     let temp = tempfile::tempdir().unwrap();
     let store = temp.path().join("store");
