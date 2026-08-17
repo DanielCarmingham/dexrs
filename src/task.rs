@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Task {
@@ -20,6 +21,34 @@ pub struct Task {
     pub children: Vec<String>,
 }
 
+impl Task {
+    pub fn new(
+        id: String,
+        name: String,
+        description: Option<String>,
+        priority: Option<String>,
+    ) -> Self {
+        let now = timestamp();
+        Self {
+            id,
+            parent_id: None,
+            name,
+            description,
+            priority,
+            completed: false,
+            result: None,
+            metadata: None,
+            created_at: Some(now.clone()),
+            updated_at: Some(now),
+            started_at: None,
+            completed_at: None,
+            blocked_by: Vec::new(),
+            blocks: Vec::new(),
+            children: Vec::new(),
+        }
+    }
+}
+
 pub fn parse_tasks_jsonl(input: &str) -> anyhow::Result<Vec<Task>> {
     input
         .lines()
@@ -39,4 +68,36 @@ pub fn serialize_tasks_jsonl(tasks: &[Task]) -> anyhow::Result<String> {
     }
 
     Ok(output)
+}
+
+pub fn timestamp() -> String {
+    time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .expect("RFC3339 formatting should not fail")
+}
+
+pub fn generate_id(existing_ids: impl Fn(&str) -> bool) -> String {
+    for attempt in 0..u64::MAX {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        let value = nanos ^ ((std::process::id() as u128) << 32) ^ attempt as u128;
+        let id = base36_8(value);
+        if !existing_ids(&id) {
+            return id;
+        }
+    }
+
+    unreachable!("id generation exhausted u64 attempts")
+}
+
+fn base36_8(mut value: u128) -> String {
+    const ALPHABET: &[u8; 36] = b"0123456789abcdefghijklmnopqrstuvwxyz";
+    let mut bytes = [b'0'; 8];
+    for index in (0..8).rev() {
+        bytes[index] = ALPHABET[(value % 36) as usize];
+        value /= 36;
+    }
+    String::from_utf8(bytes.to_vec()).expect("base36 id should be utf8")
 }

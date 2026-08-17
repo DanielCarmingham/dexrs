@@ -11,4 +11,36 @@ pub struct Cli {
 pub enum Command {
     Dir,
     Init,
+    #[command(alias = "add")]
+    Create {
+        name: String,
+        #[arg(short, long)]
+        description: Option<String>,
+        #[arg(short, long)]
+        priority: Option<String>,
+    },
+    Start {
+        id: String,
+    },
+    #[command(alias = "done")]
+    Complete {
+        id: String,
+        result: Option<String>,
+        #[arg(long)]
+        force: bool,
+    },
+    #[command(alias = "update")]
+    Edit {
+        id: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(short, long)]
+        description: Option<String>,
+        #[arg(short, long)]
+        priority: Option<String>,
+    },
+    #[command(alias = "rm", alias = "remove")]
+    Delete {
+        id: String,
+    },
 }

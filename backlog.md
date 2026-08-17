@@ -7,17 +7,12 @@ incomplete.
 
 ## Active
 
-- [ ] Task 6: Implement core mutating commands
+- [ ] Task 7: Implement read commands and output
 
 ## Backlog
 
-- [ ] Implement `create` / `add`
 - [ ] Implement `list` / `ls`
 - [ ] Implement `show`
-- [ ] Implement `start`
-- [ ] Implement `complete` / `done`
-- [ ] Implement `edit` / `update`
-- [ ] Implement `delete` / `rm` / `remove`
 - [ ] Add the `dex` compatibility shim
 - [ ] Add CLI golden tests against dex-compatible fixtures
 - [ ] Add concurrent writer regression tests
@@ -45,3 +40,8 @@ incomplete.
 - [x] Implement atomic JSONL writes
 - [x] Add concurrent writer regression tests
 - [x] Implement core task relationship validation
+- [x] Implement `create` / `add`
+- [x] Implement `start`
+- [x] Implement `complete` / `done`
+- [x] Implement `edit` / `update`
+- [x] Implement `delete` / `rm` / `remove`
