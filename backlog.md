@@ -7,12 +7,10 @@ incomplete.
 
 ## Active
 
-- [ ] Task 4: Implement locked transactions and atomic writes
+- [ ] Task 5: Implement core task relationship validation
 
 ## Backlog
 
-- [ ] Implement cross-process locked store transactions
-- [ ] Implement atomic JSONL writes
 - [ ] Implement core task relationship validation
 - [ ] Implement `create` / `add`
 - [ ] Implement `list` / `ls`
@@ -44,3 +42,6 @@ incomplete.
 - [x] Implement `init` and `dir`
 - [x] Implement dex-compatible task data types and JSONL parsing
 - [x] Add CLI golden tests against dex-compatible fixtures
+- [x] Implement cross-process locked store transactions
+- [x] Implement atomic JSONL writes
+- [x] Add concurrent writer regression tests

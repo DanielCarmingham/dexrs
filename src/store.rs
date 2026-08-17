@@ -1,9 +1,13 @@
 use std::ffi::OsStr;
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, anyhow};
+use fs4::fs_std::FileExt;
+
+use crate::task::{Task, parse_tasks_jsonl, serialize_tasks_jsonl};
 
 pub fn resolve_store_dir(cwd: &Path, env_path: Option<&OsStr>) -> anyhow::Result<PathBuf> {
     if let Some(path) = env_path {
@@ -30,6 +34,62 @@ pub fn init_store(store_dir: &Path) -> anyhow::Result<()> {
         .with_context(|| format!("failed to create task file {}", task_file.display()))?;
 
     Ok(())
+}
+
+pub fn read_tasks(store_dir: &Path) -> anyhow::Result<Vec<Task>> {
+    let task_file = store_dir.join("tasks.jsonl");
+    match fs::read_to_string(&task_file) {
+        Ok(contents) => parse_tasks_jsonl(&contents),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(error) => {
+            Err(error).with_context(|| format!("failed to read task file {}", task_file.display()))
+        }
+    }
+}
+
+pub fn transact<F, T>(store_dir: &Path, f: F) -> anyhow::Result<T>
+where
+    F: FnOnce(&mut Vec<Task>) -> anyhow::Result<T>,
+{
+    fs::create_dir_all(store_dir)
+        .with_context(|| format!("failed to create store directory {}", store_dir.display()))?;
+
+    let lock_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(store_dir.join("tasks.lock"))
+        .with_context(|| format!("failed to open lock file in {}", store_dir.display()))?;
+    lock_file.lock_exclusive()?;
+
+    let mut tasks = read_tasks(store_dir)?;
+    let result = f(&mut tasks)?;
+    write_tasks_atomic(store_dir, &tasks)?;
+
+    Ok(result)
+}
+
+fn write_tasks_atomic(store_dir: &Path, tasks: &[Task]) -> anyhow::Result<()> {
+    let payload = serialize_tasks_jsonl(tasks)?;
+    let mut temp = tempfile::NamedTempFile::new_in(store_dir)
+        .with_context(|| format!("failed to create temp file in {}", store_dir.display()))?;
+    temp.write_all(payload.as_bytes())?;
+    temp.as_file().sync_all()?;
+
+    let task_file = store_dir.join("tasks.jsonl");
+    temp.persist(&task_file)
+        .map_err(|error| error.error)
+        .with_context(|| format!("failed to replace task file {}", task_file.display()))?;
+
+    sync_directory(store_dir);
+    Ok(())
+}
+
+fn sync_directory(store_dir: &Path) {
+    if let Ok(directory) = File::open(store_dir) {
+        let _ = directory.sync_all();
+    }
 }
 
 fn git_root(cwd: &Path) -> anyhow::Result<Option<PathBuf>> {

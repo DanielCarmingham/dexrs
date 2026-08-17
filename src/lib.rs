@@ -1,6 +1,6 @@
 mod cli;
 mod commands;
-mod store;
+pub mod store;
 pub mod task;
 
 use std::ffi::OsString;
