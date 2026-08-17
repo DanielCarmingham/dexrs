@@ -7,11 +7,10 @@ incomplete.
 
 ## Active
 
-- [ ] Task 5: Implement core task relationship validation
+- [ ] Task 6: Implement core mutating commands
 
 ## Backlog
 
-- [ ] Implement core task relationship validation
 - [ ] Implement `create` / `add`
 - [ ] Implement `list` / `ls`
 - [ ] Implement `show`
@@ -45,3 +44,4 @@ incomplete.
 - [x] Implement cross-process locked store transactions
 - [x] Implement atomic JSONL writes
 - [x] Add concurrent writer regression tests
+- [x] Implement core task relationship validation

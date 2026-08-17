@@ -2,6 +2,7 @@ mod cli;
 mod commands;
 pub mod store;
 pub mod task;
+pub mod validate;
 
 use std::ffi::OsString;
 use std::io::{self, Write};

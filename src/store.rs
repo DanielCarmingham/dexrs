@@ -8,6 +8,7 @@ use anyhow::{Context, anyhow};
 use fs4::fs_std::FileExt;
 
 use crate::task::{Task, parse_tasks_jsonl, serialize_tasks_jsonl};
+use crate::validate::validate_tasks;
 
 pub fn resolve_store_dir(cwd: &Path, env_path: Option<&OsStr>) -> anyhow::Result<PathBuf> {
     if let Some(path) = env_path {
@@ -65,6 +66,7 @@ where
 
     let mut tasks = read_tasks(store_dir)?;
     let result = f(&mut tasks)?;
+    validate_tasks(&tasks)?;
     write_tasks_atomic(store_dir, &tasks)?;
 
     Ok(result)

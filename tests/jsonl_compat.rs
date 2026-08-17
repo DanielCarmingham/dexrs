@@ -1,4 +1,5 @@
 use dexrs::task::{parse_tasks_jsonl, serialize_tasks_jsonl};
+use dexrs::validate::{validate_completion, validate_tasks};
 
 #[test]
 fn parses_dex_compatible_jsonl_fixture() {
@@ -40,4 +41,59 @@ fn serializes_tasks_as_stable_jsonl_ordered_by_id() {
     assert!(lines[0].contains(r#""id":"abc123xy""#));
     assert!(lines[1].contains(r#""id":"def456uv""#));
     assert!(lines[0].contains(r#""blockedBy":[]"#));
+}
+
+#[test]
+fn validate_rejects_missing_parent() {
+    let mut tasks = parse_tasks_jsonl(include_str!("fixtures/dex-tasks.jsonl")).unwrap();
+    tasks[0].children.clear();
+    tasks[1].parent_id = Some("missing1".to_string());
+
+    let error = validate_tasks(&tasks).unwrap_err().to_string();
+
+    assert!(error.contains("missing parent"));
+}
+
+#[test]
+fn validate_rejects_mismatched_children() {
+    let mut tasks = parse_tasks_jsonl(include_str!("fixtures/dex-tasks.jsonl")).unwrap();
+    tasks[0].children.clear();
+
+    let error = validate_tasks(&tasks).unwrap_err().to_string();
+
+    assert!(error.contains("children missing child def456uv"));
+}
+
+#[test]
+fn validate_rejects_mismatched_blockers() {
+    let mut tasks = parse_tasks_jsonl(include_str!("fixtures/dex-tasks.jsonl")).unwrap();
+    tasks[0].blocks.clear();
+
+    let error = validate_tasks(&tasks).unwrap_err().to_string();
+
+    assert!(error.contains("blocks missing def456uv"));
+}
+
+#[test]
+fn validate_rejects_blocking_cycles() {
+    let mut tasks = parse_tasks_jsonl(include_str!("fixtures/dex-tasks.jsonl")).unwrap();
+    tasks[0].blocked_by.push("def456uv".to_string());
+    tasks[1].blocks.push("abc123xy".to_string());
+
+    let error = validate_tasks(&tasks).unwrap_err().to_string();
+
+    assert!(error.contains("blocking cycle"));
+}
+
+#[test]
+fn validate_completion_rejects_incomplete_children_without_force() {
+    let mut tasks = parse_tasks_jsonl(include_str!("fixtures/dex-tasks.jsonl")).unwrap();
+    tasks[1].completed = false;
+
+    let error = validate_completion(&tasks, "abc123xy", false)
+        .unwrap_err()
+        .to_string();
+
+    assert!(error.contains("incomplete child def456uv"));
+    validate_completion(&tasks, "abc123xy", true).unwrap();
 }
