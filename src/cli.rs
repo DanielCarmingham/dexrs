@@ -25,8 +25,13 @@ pub enum Command {
     #[command(alias = "done")]
     Complete {
         id: String,
+        #[arg(short, long)]
         result: Option<String>,
+        #[arg(short, long)]
+        commit: Option<String>,
         #[arg(long)]
+        no_commit: bool,
+        #[arg(short, long)]
         force: bool,
     },
     #[command(alias = "update")]

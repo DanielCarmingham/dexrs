@@ -5,6 +5,7 @@ use clap::Parser;
 use serde_json::json;
 
 use crate::cli::{Cli, Command};
+use crate::git;
 use crate::store;
 use crate::task::{Task, generate_id, timestamp};
 use crate::validate::validate_completion;
@@ -61,14 +62,32 @@ where
             writeln!(stdout, "started {id}")?;
             Ok(0)
         }
-        Command::Complete { id, result, force } => {
+        Command::Complete {
+            id,
+            result,
+            commit,
+            no_commit: _,
+            force,
+        } => {
+            let Some(result) = result else {
+                anyhow::bail!(
+                    "--result (-r) is required\nUsage: dexrs complete <task-id> --result \"completion notes\""
+                );
+            };
+            let commit = commit
+                .map(|reference| git::commit_metadata(&std::env::current_dir()?, &reference))
+                .transpose()?;
             let store = resolved_store()?;
             store::transact(&store, |tasks| {
                 validate_completion(tasks, &id, force)?;
                 let now = timestamp();
                 let task = find_task_mut(tasks, &id)?;
                 task.completed = true;
-                task.result = result;
+                task.result = Some(result);
+                if let Some(commit) = commit {
+                    set_metadata(task, "commit", commit);
+                }
+                task.started_at.get_or_insert_with(|| now.clone());
                 task.completed_at = Some(now.clone());
                 task.updated_at = Some(now);
                 Ok(())
@@ -217,6 +236,15 @@ fn status_icon(task: &Task) -> &'static str {
 fn resolved_store() -> anyhow::Result<std::path::PathBuf> {
     let cwd = std::env::current_dir()?;
     store::resolve_store_dir(&cwd, std::env::var_os("DEX_STORAGE_PATH").as_deref())
+}
+
+fn set_metadata(task: &mut Task, key: &str, value: serde_json::Value) {
+    match task.metadata.as_mut() {
+        Some(serde_json::Value::Object(metadata)) => {
+            metadata.insert(key.to_string(), value);
+        }
+        _ => task.metadata = Some(json!({ key: value })),
+    }
 }
 
 fn find_task_mut<'a>(tasks: &'a mut [Task], id: &str) -> anyhow::Result<&'a mut Task> {

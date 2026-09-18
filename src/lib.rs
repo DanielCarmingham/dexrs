@@ -1,5 +1,6 @@
 mod cli;
 mod commands;
+mod git;
 pub mod store;
 pub mod task;
 pub mod validate;
