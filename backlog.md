@@ -7,11 +7,12 @@ incomplete.
 
 ## Active
 
-- [ ] Add `show --full`, multiple ids to `show`, `start --force`,
-      `delete --force`, and `status` as the default command
+No active implementation task.
 
 ## Backlog
 
+- [ ] Match the original `status` dashboard (percent complete, active/ready/
+      blocked counts, grouped task trees); dexrs prints a one-line count
 
 ## Deferred
 
@@ -32,6 +33,8 @@ incomplete.
       `--add-blocker`, `--remove-blocker`, and `--commit` to `edit`
 - [x] Add `list` filters (`--all`, `--completed`, `--in-progress`,
       `--blocked`, `--ready`, `--flat`, positional id/search) and tree view
+- [x] Add `show --full`, multiple ids to `show`, `start --force`,
+      `delete --force`, and `status` as the default command
 
 - [x] Write the dexrs MVP design spec
 - [x] Write the dexrs MVP implementation plan

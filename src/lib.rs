@@ -3,6 +3,7 @@ mod commands;
 mod git;
 pub mod listing;
 pub mod relations;
+mod show;
 pub mod store;
 pub mod task;
 pub mod validate;

@@ -6,8 +6,9 @@ use serde_json::json;
 
 use crate::cli::{Cli, Command};
 use crate::git;
-use crate::listing::{self, ListFilter, status_icon};
+use crate::listing::{self, ListFilter};
 use crate::relations;
+use crate::show;
 use crate::store;
 use crate::task::{Task, generate_id, timestamp};
 use crate::validate::validate_completion;
@@ -19,8 +20,9 @@ where
     E: Write,
 {
     let cli = Cli::parse_from(args);
+    let command = cli.command.unwrap_or(Command::Status { json: false });
 
-    match cli.command {
+    match command {
         Command::Dir => {
             let cwd = std::env::current_dir()?;
             let store =
@@ -53,7 +55,10 @@ where
                 let task = Task::new(id.clone(), name, description, priority);
                 tasks.push(task.clone());
                 relations::set_parent(tasks, &id, parent.as_deref())?;
-                for blocker in blocked_by.iter().flat_map(|value| relations::split_ids(value)) {
+                for blocker in blocked_by
+                    .iter()
+                    .flat_map(|value| relations::split_ids(value))
+                {
                     relations::add_blocker(tasks, &id, blocker)?;
                 }
                 Ok(task)
@@ -61,11 +66,17 @@ where
             writeln!(stdout, "created {}", task.id)?;
             Ok(0)
         }
-        Command::Start { id } => {
+        Command::Start { id, force } => {
             let store = resolved_store()?;
             store::transact(&store, |tasks| {
                 let now = timestamp();
                 let task = find_task_mut(tasks, &id)?;
+                if listing::is_in_progress(task) && !force {
+                    anyhow::bail!(
+                        "task {id} is already in progress and may be being worked on by someone else\n\
+                         Hint: Use --force to re-claim the task"
+                    );
+                }
                 task.started_at = Some(now.clone());
                 task.updated_at = Some(now);
                 task.completed = false;
@@ -125,7 +136,10 @@ where
                 if let Some(parent) = &parent {
                     relations::set_parent(tasks, &id, Some(parent))?;
                 }
-                for blocker in add_blocker.iter().flat_map(|value| relations::split_ids(value)) {
+                for blocker in add_blocker
+                    .iter()
+                    .flat_map(|value| relations::split_ids(value))
+                {
                     relations::add_blocker(tasks, &id, blocker)?;
                 }
                 for blocker in remove_blocker
@@ -153,25 +167,34 @@ where
             writeln!(stdout, "updated {id}")?;
             Ok(0)
         }
-        Command::Delete { id } => {
+        Command::Delete { id, force } => {
             let store = resolved_store()?;
-            store::transact(&store, |tasks| {
-                let index = tasks
-                    .iter()
-                    .position(|task| task.id == id)
-                    .ok_or_else(|| anyhow::anyhow!("task {id} not found"))?;
-                tasks.remove(index);
-                for task in tasks {
-                    if task.parent_id.as_deref() == Some(id.as_str()) {
-                        task.parent_id = None;
-                    }
-                    task.children.retain(|child| child != &id);
-                    task.blocked_by.retain(|blocker| blocker != &id);
-                    task.blocks.retain(|blocked| blocked != &id);
+            let removed = store::transact(&store, |tasks| {
+                find_task_mut(tasks, &id)?;
+                let subtree: std::collections::HashSet<String> = relations::subtree_ids(tasks, &id)
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect();
+                let subtasks = subtree.len() - 1;
+                if subtasks > 0 && !force {
+                    anyhow::bail!(
+                        "task {id} has {subtasks} subtasks that would also be deleted\n\
+                         Hint: Use --force to delete the task and its subtasks"
+                    );
                 }
-                Ok(())
+                tasks.retain(|task| !subtree.contains(&task.id));
+                for task in tasks {
+                    task.children.retain(|child| !subtree.contains(child));
+                    task.blocked_by.retain(|blocker| !subtree.contains(blocker));
+                    task.blocks.retain(|blocked| !subtree.contains(blocked));
+                }
+                Ok(subtasks)
             })?;
-            writeln!(stdout, "deleted {id}")?;
+            match removed {
+                0 => writeln!(stdout, "Deleted task {id}")?,
+                1 => writeln!(stdout, "Deleted task {id} and 1 subtask")?,
+                count => writeln!(stdout, "Deleted task {id} and {count} subtasks")?,
+            }
             Ok(0)
         }
         Command::Status { json } => {
@@ -230,21 +253,32 @@ where
             }
             Ok(0)
         }
-        Command::Show { id, json } => {
+        Command::Show {
+            ids,
+            full,
+            expand,
+            json,
+        } => {
             let store = resolved_store()?;
             let tasks = store::read_tasks(&store)?;
-            let task = tasks
+            let selected = ids
                 .iter()
-                .find(|task| task.id == id)
-                .ok_or_else(|| anyhow::anyhow!("task {id} not found"))?;
+                .map(|id| {
+                    listing::find(&tasks, id).ok_or_else(|| anyhow::anyhow!("task {id} not found"))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
             if json {
-                writeln!(stdout, "{}", serde_json::to_string(task)?)?;
-            } else {
-                writeln!(stdout, "{} {} {}", status_icon(task), task.id, task.name)?;
-                if !task.description.is_empty() {
-                    writeln!(stdout, "{}", task.description)?;
+                match selected.as_slice() {
+                    [task] => writeln!(stdout, "{}", serde_json::to_string(task)?)?,
+                    many => writeln!(stdout, "{}", serde_json::to_string(many)?)?,
                 }
-                writeln!(stdout, "priority: {}", task.priority)?;
+            } else {
+                for (index, task) in selected.iter().enumerate() {
+                    if index > 0 {
+                        writeln!(stdout)?;
+                    }
+                    write!(stdout, "{}", show::render(&tasks, task, full || expand))?;
+                }
             }
             Ok(0)
         }

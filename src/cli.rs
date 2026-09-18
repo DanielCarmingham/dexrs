@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand};
 #[command(name = "dexrs")]
 pub struct Cli {
     #[command(subcommand)]
-    pub command: Command,
+    pub command: Option<Command>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -27,6 +27,8 @@ pub enum Command {
     },
     Start {
         id: String,
+        #[arg(short, long)]
+        force: bool,
     },
     #[command(alias = "done")]
     Complete {
@@ -61,6 +63,8 @@ pub enum Command {
     #[command(alias = "rm", alias = "remove")]
     Delete {
         id: String,
+        #[arg(short, long)]
+        force: bool,
     },
     Status {
         #[arg(long)]
@@ -87,7 +91,12 @@ pub enum Command {
         json: bool,
     },
     Show {
-        id: String,
+        #[arg(required = true)]
+        ids: Vec<String>,
+        #[arg(short, long)]
+        full: bool,
+        #[arg(short, long)]
+        expand: bool,
         #[arg(long)]
         json: bool,
     },

@@ -7,7 +7,10 @@ use serde_json::{Value, json};
 use crate::task::timestamp;
 
 pub fn commit_metadata(cwd: &Path, reference: &str) -> anyhow::Result<Value> {
-    let sha = match git(cwd, &["rev-parse", "--verify", &format!("{reference}^{{commit}}")])? {
+    let sha = match git(
+        cwd,
+        &["rev-parse", "--verify", &format!("{reference}^{{commit}}")],
+    )? {
         Some(sha) => sha,
         None => bail!(
             "commit {reference} not found in local repository\n  \

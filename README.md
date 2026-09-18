@@ -20,13 +20,31 @@ uninstall any existing npm/pnpm dex installation.
 
 ## Implemented Commands
 
+The store format and the flags below match dex v0.16, so the two tools can
+share a `.dex/tasks.jsonl` file.
+
 - `init`
 - `dir`
-- `status`
-- `create` / `add`
-- `list` / `ls`
-- `show`
-- `start`
-- `complete` / `done`
-- `edit` / `update`
-- `delete` / `rm` / `remove`
+- `status` (also the default when no command is given)
+- `create` / `add` `"name"` or `-n`, `-d`, `-p`, `--parent`, `--blocked-by`
+- `list` / `ls` `[id|search]`, `--all`, `--completed`, `--in-progress`,
+  `--blocked`, `--ready`, `--flat`, `--json`
+- `show <id>...`, `--full`, `--expand`, `--json`
+- `start <id>`, `--force`
+- `complete` / `done` `<id> --result "..."`, `--commit <sha>`, `--no-commit`,
+  `--force`
+- `edit` / `update` `<id>`, `-n`, `-d`, `-p`, `--parent`, `--add-blocker`,
+  `--remove-blocker`, `--commit`
+- `delete` / `rm` / `remove` `<id>`, `--force`
+
+Not implemented: `config`, `mcp`, `archive`, `plan`, `sync`, `import`,
+`export`, `completion`, and the `--issue` / `--commit` lookups on `list`.
+
+## Testing Against the Original
+
+Set `DEX_REFERENCE_BIN` to the original dex executable to make the test suite
+also verify that a store written by dexrs is accepted by it:
+
+```bash
+DEX_REFERENCE_BIN="$(command -v dex)" cargo test
+```

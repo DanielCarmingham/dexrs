@@ -17,7 +17,7 @@ pub fn select<'a>(tasks: &'a [Task], filter: &ListFilter) -> Vec<&'a Task> {
         .query
         .as_deref()
         .filter(|query| tasks.iter().any(|task| task.id == *query))
-        .map(|root| descendants_including(tasks, root));
+        .map(|root| crate::relations::subtree_ids(tasks, root));
     let search = filter
         .query
         .as_deref()
@@ -165,20 +165,14 @@ fn render_children(
         output.push_str(branch);
         output.push_str(&task_line(tasks, child));
         output.push('\n');
-        render_children(tasks, child, included, &format!("{prefix}{extension}"), output);
+        render_children(
+            tasks,
+            child,
+            included,
+            &format!("{prefix}{extension}"),
+            output,
+        );
     }
-}
-
-fn descendants_including<'a>(tasks: &'a [Task], root: &str) -> HashSet<&'a str> {
-    let mut ids = HashSet::new();
-    let mut pending = vec![root];
-    while let Some(id) = pending.pop() {
-        if let Some(task) = find(tasks, id) {
-            ids.insert(task.id.as_str());
-            pending.extend(task.children.iter().map(String::as_str));
-        }
-    }
-    ids
 }
 
 fn sort_key(left: &&Task, right: &&Task) -> std::cmp::Ordering {

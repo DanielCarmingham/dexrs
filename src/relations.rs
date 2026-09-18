@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::{anyhow, bail};
 
 use crate::task::Task;
@@ -39,7 +41,11 @@ pub fn add_blocker(tasks: &mut [Task], id: &str, blocker_id: &str) -> anyhow::Re
         anyhow!("task {blocker_id} not found\nHint: The specified blocker task does not exist")
     })?;
     let task = require_mut(tasks, id)?;
-    if !task.blocked_by.iter().any(|existing| existing == blocker_id) {
+    if !task
+        .blocked_by
+        .iter()
+        .any(|existing| existing == blocker_id)
+    {
         task.blocked_by.push(blocker_id.to_string());
     }
     let blocker = require_mut(tasks, blocker_id)?;
@@ -57,6 +63,18 @@ pub fn remove_blocker(tasks: &mut [Task], id: &str, blocker_id: &str) -> anyhow:
         blocker.blocks.retain(|existing| existing != id);
     }
     Ok(())
+}
+
+pub fn subtree_ids<'a>(tasks: &'a [Task], root: &str) -> HashSet<&'a str> {
+    let mut ids = HashSet::new();
+    let mut pending = vec![root];
+    while let Some(id) = pending.pop() {
+        if let Some(task) = tasks.iter().find(|task| task.id == id) {
+            ids.insert(task.id.as_str());
+            pending.extend(task.children.iter().map(String::as_str));
+        }
+    }
+    ids
 }
 
 pub fn split_ids(value: &str) -> impl Iterator<Item = &str> {

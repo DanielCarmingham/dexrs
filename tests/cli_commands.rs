@@ -463,11 +463,22 @@ fn git_repo_with_commit(dir: &std::path::Path) -> String {
     let git = |args: &[&str]| {
         let output = std::process::Command::new("git")
             .current_dir(dir)
-            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+            ])
             .args(args)
             .output()
             .unwrap();
-        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         String::from_utf8(output.stdout).unwrap().trim().to_string()
     };
     git(&["init", "-q", "-b", "main", "."]);
@@ -528,7 +539,10 @@ fn create_with_parent_links_both_directions() {
 
     let child = create(&store, &["-n", "Child", "--parent", &parent]);
 
-    assert_eq!(task(&store, &child).parent_id.as_deref(), Some(parent.as_str()));
+    assert_eq!(
+        task(&store, &child).parent_id.as_deref(),
+        Some(parent.as_str())
+    );
     assert_eq!(task(&store, &parent).children, vec![child]);
 }
 
@@ -558,7 +572,10 @@ fn create_with_blocked_by_links_both_directions() {
         &["Blocked", "--blocked-by", &format!("{first},{second}")],
     );
 
-    assert_eq!(task(&store, &blocked).blocked_by, vec![first.clone(), second.clone()]);
+    assert_eq!(
+        task(&store, &blocked).blocked_by,
+        vec![first.clone(), second.clone()]
+    );
     assert_eq!(task(&store, &first).blocks, vec![blocked.clone()]);
     assert_eq!(task(&store, &second).blocks, vec![blocked]);
 }
@@ -576,7 +593,10 @@ fn edit_parent_moves_task_between_parents() {
         .assert()
         .success();
 
-    assert_eq!(task(&store, &child).parent_id.as_deref(), Some(new_parent.as_str()));
+    assert_eq!(
+        task(&store, &child).parent_id.as_deref(),
+        Some(new_parent.as_str())
+    );
     assert!(task(&store, &old_parent).children.is_empty());
     assert_eq!(task(&store, &new_parent).children, vec![child]);
 }
@@ -590,10 +610,18 @@ fn edit_adds_and_removes_blockers() {
     let blocked = create(&store, &["Blocked"]);
 
     dexrs(&store)
-        .args(["edit", &blocked, "--add-blocker", &format!("{blocker},{other}")])
+        .args([
+            "edit",
+            &blocked,
+            "--add-blocker",
+            &format!("{blocker},{other}"),
+        ])
         .assert()
         .success();
-    assert_eq!(task(&store, &blocked).blocked_by, vec![blocker.clone(), other.clone()]);
+    assert_eq!(
+        task(&store, &blocked).blocked_by,
+        vec![blocker.clone(), other.clone()]
+    );
     assert_eq!(task(&store, &blocker).blocks, vec![blocked.clone()]);
 
     dexrs(&store)
@@ -646,13 +674,19 @@ fn list_hides_completed_unless_asked() {
         .success();
 
     let default = list(&store, &[]);
-    assert!(default.contains(&open) && !default.contains(&done), "{default}");
+    assert!(
+        default.contains(&open) && !default.contains(&done),
+        "{default}"
+    );
 
     let all = list(&store, &["--all"]);
     assert!(all.contains(&open) && all.contains(&done), "{all}");
 
     let completed = list(&store, &["--completed"]);
-    assert!(!completed.contains(&open) && completed.contains(&done), "{completed}");
+    assert!(
+        !completed.contains(&open) && completed.contains(&done),
+        "{completed}"
+    );
 }
 
 #[test]
@@ -698,13 +732,22 @@ fn list_filters_ready_blocked_and_in_progress() {
     dexrs(&store).args(["start", &started]).assert().success();
 
     let output = list(&store, &["--ready"]);
-    assert!(output.contains(&ready) && !output.contains(&started) && !output.contains(&blocked), "{output}");
+    assert!(
+        output.contains(&ready) && !output.contains(&started) && !output.contains(&blocked),
+        "{output}"
+    );
 
     let output = list(&store, &["--blocked"]);
-    assert!(!output.contains(": Ready") && output.contains(": Blocked"), "{output}");
+    assert!(
+        !output.contains(": Ready") && output.contains(": Blocked"),
+        "{output}"
+    );
 
     let output = list(&store, &["--in-progress"]);
-    assert!(output.contains(&format!("[>] {started}")) && !output.contains(&ready), "{output}");
+    assert!(
+        output.contains(&format!("[>] {started}")) && !output.contains(&ready),
+        "{output}"
+    );
 }
 
 #[test]
@@ -718,7 +761,10 @@ fn list_filter_keeps_ancestors_for_context() {
 
     let output = list(&store, &["--in-progress"]);
 
-    assert_eq!(output, format!("[ ] {parent}: Parent\n└── [>] {child}: Child\n"));
+    assert_eq!(
+        output,
+        format!("[ ] {parent}: Parent\n└── [>] {child}: Child\n")
+    );
     assert!(!output.contains(&sibling));
 }
 
@@ -731,10 +777,16 @@ fn list_positional_argument_selects_subtree_or_searches() {
     let other = create(&store, &["Other", "-d", "mentions needle here"]);
 
     let output = list(&store, &[&parent]);
-    assert!(output.contains(&parent) && output.contains(&child) && !output.contains(&other), "{output}");
+    assert!(
+        output.contains(&parent) && output.contains(&child) && !output.contains(&other),
+        "{output}"
+    );
 
     let output = list(&store, &["needle"]);
-    assert!(output.contains(&other) && !output.contains(&parent), "{output}");
+    assert!(
+        output.contains(&other) && !output.contains(&parent),
+        "{output}"
+    );
 
     let output = list(&store, &["--query", "NEEDLE"]);
     assert!(output.contains(&other), "{output}");
@@ -750,7 +802,157 @@ fn list_flat_drops_tree_prefixes_and_empty_list_says_so() {
     let child = create(&store, &["Child", "--parent", &parent]);
 
     let output = list(&store, &["--flat"]);
-    let mut lines = [format!("[ ] {child}: Child"), format!("[ ] {parent}: Parent")];
+    let mut lines = [
+        format!("[ ] {child}: Child"),
+        format!("[ ] {parent}: Parent"),
+    ];
     lines.sort();
     assert_eq!(output, format!("{}\n{}\n", lines[0], lines[1]));
+}
+
+#[test]
+fn show_prints_several_tasks_with_context_sections() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let parent = create(&store, &["Parent", "-d", "parent details"]);
+    let child = create(&store, &["Child", "--parent", &parent]);
+    dexrs(&store)
+        .args(["complete", &child, "-r", "child result"])
+        .assert()
+        .success();
+
+    let output = dexrs(&store)
+        .args(["show", &parent, &child])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let output = String::from_utf8(output).unwrap();
+
+    assert!(
+        output.contains(&format!("[ ] {parent}: Parent (1 subtask)  ← viewing")),
+        "{output}"
+    );
+    assert!(
+        output.contains(&format!("└── [x] {child}: Child")),
+        "{output}"
+    );
+    assert!(
+        output.contains("Description:\n  parent details"),
+        "{output}"
+    );
+    assert!(
+        output.contains(&format!("[x] {child}: Child  ← viewing")),
+        "{output}"
+    );
+    assert!(output.contains("Result:\n  child result"), "{output}");
+    assert!(output.contains("Created:"), "{output}");
+}
+
+#[test]
+fn show_truncates_long_text_unless_full() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let long = "x".repeat(2000);
+    let id = create(&store, &["Long", "-d", &long]);
+
+    let short = dexrs(&store)
+        .args(["show", &id])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let short = String::from_utf8(short).unwrap();
+    assert!(
+        !short.contains(&long) && short.contains("--full"),
+        "{short}"
+    );
+
+    for flag in ["--full", "-f", "--expand", "-e"] {
+        dexrs(&store).args(["show", &id, flag]).assert().success();
+    }
+    let full = dexrs(&store)
+        .args(["show", &id, "--full"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    assert!(String::from_utf8(full).unwrap().contains(&long));
+}
+
+#[test]
+fn start_refuses_in_progress_task_unless_forced() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let id = create(&store, &["Claim me"]);
+    dexrs(&store).args(["start", &id]).assert().success();
+    let first_start = task(&store, &id).started_at.unwrap();
+
+    dexrs(&store)
+        .args(["start", &id])
+        .assert()
+        .failure()
+        .stderr(
+            predicates::str::contains("already in progress")
+                .and(predicates::str::contains("--force")),
+        );
+    assert_eq!(task(&store, &id).started_at.unwrap(), first_start);
+
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    dexrs(&store)
+        .args(["start", &id, "--force"])
+        .assert()
+        .success();
+    assert_ne!(task(&store, &id).started_at.unwrap(), first_start);
+    dexrs(&store).args(["start", &id, "-f"]).assert().success();
+}
+
+#[test]
+fn delete_with_subtasks_requires_force_and_removes_subtree() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let parent = create(&store, &["Parent"]);
+    let child = create(&store, &["Child", "--parent", &parent]);
+    let grandchild = create(&store, &["Grandchild", "--parent", &child]);
+    let other = create(&store, &["Other"]);
+
+    dexrs(&store)
+        .args(["delete", &parent])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("2 subtasks").and(predicates::str::contains("--force")));
+    assert_eq!(read_tasks(&store).len(), 4);
+
+    dexrs(&store)
+        .args(["delete", &parent, "-f"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(format!(
+            "Deleted task {parent} and 2 subtasks"
+        )));
+    let remaining: Vec<String> = read_tasks(&store).into_iter().map(|task| task.id).collect();
+    assert_eq!(remaining, vec![other]);
+    assert!(!remaining.contains(&child) && !remaining.contains(&grandchild));
+}
+
+#[test]
+fn status_is_the_default_command() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    create(&store, &["Only"]);
+
+    let explicit = dexrs(&store)
+        .arg("status")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let default = dexrs(&store).assert().success().get_output().stdout.clone();
+
+    assert_eq!(default, explicit);
+    assert!(!explicit.is_empty());
 }
