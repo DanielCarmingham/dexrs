@@ -1,8 +1,8 @@
-use dexrs::task::{Task, parse_tasks_jsonl};
+use dexrs::task::Task;
 use predicates::prelude::PredicateBooleanExt;
 
 fn read_tasks(store: &std::path::Path) -> Vec<Task> {
-    parse_tasks_jsonl(&std::fs::read_to_string(store.join("tasks.jsonl")).unwrap()).unwrap()
+    dexrs::store::read_tasks(store).unwrap()
 }
 
 #[test]
@@ -511,4 +511,113 @@ fn complete_with_unknown_commit_fails_without_changes() {
         .stderr(predicates::str::contains("not found"));
 
     assert!(!read_tasks(&store)[0].completed);
+}
+
+fn task(store: &std::path::Path, id: &str) -> Task {
+    read_tasks(store)
+        .into_iter()
+        .find(|task| task.id == id)
+        .unwrap()
+}
+
+#[test]
+fn create_with_parent_links_both_directions() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let parent = create(&store, &["Parent"]);
+
+    let child = create(&store, &["-n", "Child", "--parent", &parent]);
+
+    assert_eq!(task(&store, &child).parent_id.as_deref(), Some(parent.as_str()));
+    assert_eq!(task(&store, &parent).children, vec![child]);
+}
+
+#[test]
+fn create_with_missing_parent_fails() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+
+    dexrs(&store)
+        .args(["create", "Orphan", "--parent", "nope1234"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("nope1234"));
+
+    assert!(read_tasks(&store).is_empty());
+}
+
+#[test]
+fn create_with_blocked_by_links_both_directions() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let first = create(&store, &["First"]);
+    let second = create(&store, &["Second"]);
+
+    let blocked = create(
+        &store,
+        &["Blocked", "--blocked-by", &format!("{first},{second}")],
+    );
+
+    assert_eq!(task(&store, &blocked).blocked_by, vec![first.clone(), second.clone()]);
+    assert_eq!(task(&store, &first).blocks, vec![blocked.clone()]);
+    assert_eq!(task(&store, &second).blocks, vec![blocked]);
+}
+
+#[test]
+fn edit_parent_moves_task_between_parents() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let old_parent = create(&store, &["Old"]);
+    let new_parent = create(&store, &["New"]);
+    let child = create(&store, &["Child", "--parent", &old_parent]);
+
+    dexrs(&store)
+        .args(["edit", &child, "--parent", &new_parent])
+        .assert()
+        .success();
+
+    assert_eq!(task(&store, &child).parent_id.as_deref(), Some(new_parent.as_str()));
+    assert!(task(&store, &old_parent).children.is_empty());
+    assert_eq!(task(&store, &new_parent).children, vec![child]);
+}
+
+#[test]
+fn edit_adds_and_removes_blockers() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let blocker = create(&store, &["Blocker"]);
+    let other = create(&store, &["Other"]);
+    let blocked = create(&store, &["Blocked"]);
+
+    dexrs(&store)
+        .args(["edit", &blocked, "--add-blocker", &format!("{blocker},{other}")])
+        .assert()
+        .success();
+    assert_eq!(task(&store, &blocked).blocked_by, vec![blocker.clone(), other.clone()]);
+    assert_eq!(task(&store, &blocker).blocks, vec![blocked.clone()]);
+
+    dexrs(&store)
+        .args(["edit", &blocked, "--remove-blocker", &blocker])
+        .assert()
+        .success();
+    assert_eq!(task(&store, &blocked).blocked_by, vec![other]);
+    assert!(task(&store, &blocker).blocks.is_empty());
+}
+
+#[test]
+fn edit_short_name_flag_and_commit_link() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let sha = git_repo_with_commit(temp.path());
+    let id = create(&store, &["Before"]);
+
+    dexrs(&store)
+        .current_dir(temp.path())
+        .args(["edit", &id, "-n", "After", "--commit", &sha])
+        .assert()
+        .success();
+
+    let task = task(&store, &id);
+    assert_eq!(task.name, "After");
+    assert_eq!(task.metadata.unwrap()["commit"]["sha"], sha);
 }

@@ -13,11 +13,17 @@ pub enum Command {
     Init,
     #[command(alias = "add")]
     Create {
-        name: String,
+        name: Option<String>,
+        #[arg(short = 'n', long = "name", conflicts_with = "name")]
+        name_flag: Option<String>,
         #[arg(short, long)]
         description: Option<String>,
         #[arg(short, long)]
         priority: Option<i64>,
+        #[arg(long)]
+        parent: Option<String>,
+        #[arg(short, long)]
+        blocked_by: Option<String>,
     },
     Start {
         id: String,
@@ -37,12 +43,20 @@ pub enum Command {
     #[command(alias = "update")]
     Edit {
         id: String,
-        #[arg(long)]
+        #[arg(short, long)]
         name: Option<String>,
         #[arg(short, long)]
         description: Option<String>,
         #[arg(short, long)]
         priority: Option<i64>,
+        #[arg(long)]
+        parent: Option<String>,
+        #[arg(long)]
+        add_blocker: Option<String>,
+        #[arg(long)]
+        remove_blocker: Option<String>,
+        #[arg(short, long)]
+        commit: Option<String>,
     },
     #[command(alias = "rm", alias = "remove")]
     Delete {

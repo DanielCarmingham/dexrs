@@ -6,6 +6,7 @@ use serde_json::json;
 
 use crate::cli::{Cli, Command};
 use crate::git;
+use crate::relations;
 use crate::store;
 use crate::task::{Task, generate_id, timestamp};
 use crate::validate::validate_completion;
@@ -36,14 +37,24 @@ where
         }
         Command::Create {
             name,
+            name_flag,
             description,
             priority,
+            parent,
+            blocked_by,
         } => {
+            let Some(name) = name.or(name_flag) else {
+                anyhow::bail!("task name is required\nUsage: dexrs create \"name\" [options]");
+            };
             let store = resolved_store()?;
             let task = store::transact(&store, |tasks| {
                 let id = generate_id(|candidate| tasks.iter().any(|task| task.id == candidate));
-                let task = Task::new(id, name, description, priority);
+                let task = Task::new(id.clone(), name, description, priority);
                 tasks.push(task.clone());
+                relations::set_parent(tasks, &id, parent.as_deref())?;
+                for blocker in blocked_by.iter().flat_map(|value| relations::split_ids(value)) {
+                    relations::add_blocker(tasks, &id, blocker)?;
+                }
                 Ok(task)
             })?;
             writeln!(stdout, "created {}", task.id)?;
@@ -100,9 +111,28 @@ where
             name,
             description,
             priority,
+            parent,
+            add_blocker,
+            remove_blocker,
+            commit,
         } => {
+            let commit = commit
+                .map(|reference| git::commit_metadata(&std::env::current_dir()?, &reference))
+                .transpose()?;
             let store = resolved_store()?;
             store::transact(&store, |tasks| {
+                if let Some(parent) = &parent {
+                    relations::set_parent(tasks, &id, Some(parent))?;
+                }
+                for blocker in add_blocker.iter().flat_map(|value| relations::split_ids(value)) {
+                    relations::add_blocker(tasks, &id, blocker)?;
+                }
+                for blocker in remove_blocker
+                    .iter()
+                    .flat_map(|value| relations::split_ids(value))
+                {
+                    relations::remove_blocker(tasks, &id, blocker)?;
+                }
                 let task = find_task_mut(tasks, &id)?;
                 if let Some(name) = name {
                     task.name = name;
@@ -112,6 +142,9 @@ where
                 }
                 if let Some(priority) = priority {
                     task.priority = priority;
+                }
+                if let Some(commit) = commit {
+                    set_metadata(task, "commit", commit);
                 }
                 task.updated_at = Some(timestamp());
                 Ok(())
