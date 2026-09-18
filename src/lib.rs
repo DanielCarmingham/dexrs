@@ -4,6 +4,7 @@ mod git;
 pub mod listing;
 pub mod relations;
 mod show;
+mod status;
 pub mod store;
 pub mod task;
 pub mod validate;

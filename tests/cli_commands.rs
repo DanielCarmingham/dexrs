@@ -192,42 +192,6 @@ fn delete_remove_and_rm_delete_tasks() {
 }
 
 #[test]
-fn status_reports_empty_and_non_empty_counts() {
-    let temp = tempfile::tempdir().unwrap();
-    let store = temp.path().join("store");
-
-    assert_cmd::Command::cargo_bin("dexrs")
-        .unwrap()
-        .env("DEX_STORAGE_PATH", &store)
-        .arg("status")
-        .assert()
-        .success()
-        .stdout("0 todo, 0 in progress, 0 done\n");
-
-    assert_cmd::Command::cargo_bin("dexrs")
-        .unwrap()
-        .env("DEX_STORAGE_PATH", &store)
-        .args(["create", "Visible"])
-        .assert()
-        .success();
-    let id = read_tasks(&store)[0].id.clone();
-    assert_cmd::Command::cargo_bin("dexrs")
-        .unwrap()
-        .env("DEX_STORAGE_PATH", &store)
-        .args(["start", &id])
-        .assert()
-        .success();
-
-    assert_cmd::Command::cargo_bin("dexrs")
-        .unwrap()
-        .env("DEX_STORAGE_PATH", &store)
-        .arg("status")
-        .assert()
-        .success()
-        .stdout("0 todo, 1 in progress, 0 done\n");
-}
-
-#[test]
 fn list_and_ls_print_status_icons() {
     let temp = tempfile::tempdir().unwrap();
     let store = temp.path().join("store");
@@ -955,4 +919,108 @@ fn status_is_the_default_command() {
 
     assert_eq!(default, explicit);
     assert!(!explicit.is_empty());
+}
+
+fn status(store: &std::path::Path, args: &[&str]) -> String {
+    let output = dexrs(store)
+        .arg("status")
+        .args(args)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    String::from_utf8(output).unwrap()
+}
+
+#[test]
+fn status_on_empty_store_suggests_creating_a_task() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+
+    assert_eq!(
+        status(&store, &[]),
+        "No tasks yet. Create one with: dex create \"Task name\" --description \"Details\"\n"
+    );
+}
+
+fn dashboard_fixture(store: &std::path::Path) -> [String; 5] {
+    let parent = create(store, &["Parent"]);
+    let started = create(store, &["Child one", "--parent", &parent]);
+    let ready = create(store, &["Child two", "--parent", &parent]);
+    let blocked = create(store, &["Blocked", "--blocked-by", &started, "-p", "3"]);
+    let done = create(store, &["Done already"]);
+    dexrs(store)
+        .args(["complete", &done, "-r", "finished"])
+        .assert()
+        .success();
+    dexrs(store).args(["start", &started]).assert().success();
+    [parent, started, ready, blocked, done]
+}
+
+#[test]
+fn status_dashboard_groups_tasks_like_original_dex() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let [parent, started, ready, blocked, done] = dashboard_fixture(&store);
+
+    let output = status(&store, &[]);
+
+    let expected = format!(
+        "  20%        1        1        2   \n\
+         complete   active   ready   blocked\n\
+         \n\
+         In Progress (1)\n\
+         ────────────────────\n\
+         [ ] {parent}: Parent\n\
+         └── [>] {started}: Child one\n\
+         \n\
+         Ready to Work (1)\n\
+         ────────────────────\n\
+         [ ] {parent}: Parent\n\
+         └── [ ] {ready}: Child two\n\
+         \n\
+         Blocked (2)\n\
+         ────────────────────\n\
+         [ ] {parent}: Parent\n\
+         [ ] {blocked} [p3] [B: {started}]: Blocked\n\
+         \n\
+         Recently Completed\n\
+         ────────────────────\n\
+         [x] {done}: Done already (0m ago)\n"
+    );
+    assert_eq!(output, expected);
+}
+
+#[test]
+fn status_json_matches_original_shape() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let [parent, started, ready, blocked, done] = dashboard_fixture(&store);
+
+    let json: serde_json::Value = serde_json::from_str(&status(&store, &["--json"])).unwrap();
+
+    assert_eq!(
+        json["stats"],
+        serde_json::json!({
+            "total": 5, "pending": 4, "completed": 1,
+            "blocked": 2, "ready": 1, "inProgress": 1
+        })
+    );
+    let ids = |key: &str| -> Vec<String> {
+        json[key]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|task| task["id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(ids("inProgressTasks"), vec![started.clone()]);
+    assert_eq!(ids("readyTasks"), vec![ready]);
+    assert_eq!(ids("blockedTasks"), vec![parent, blocked]);
+    assert_eq!(ids("recentlyCompleted"), vec![done]);
+    assert_eq!(
+        json["inProgressTasks"][0]["blockedBy"],
+        serde_json::json!([])
+    );
 }

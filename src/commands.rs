@@ -9,6 +9,7 @@ use crate::git;
 use crate::listing::{self, ListFilter};
 use crate::relations;
 use crate::show;
+use crate::status;
 use crate::store;
 use crate::task::{Task, generate_id, timestamp};
 use crate::validate::validate_completion;
@@ -200,23 +201,15 @@ where
         Command::Status { json } => {
             let store = resolved_store()?;
             let tasks = store::read_tasks(&store)?;
-            let counts = status_counts(&tasks);
+            let dashboard = status::dashboard(&tasks);
             if json {
                 writeln!(
                     stdout,
                     "{}",
-                    serde_json::to_string(&json!({
-                        "todo": counts.todo,
-                        "in_progress": counts.in_progress,
-                        "done": counts.done,
-                    }))?
+                    serde_json::to_string(&status::to_json(&dashboard))?
                 )?;
             } else {
-                writeln!(
-                    stdout,
-                    "{} todo, {} in progress, {} done",
-                    counts.todo, counts.in_progress, counts.done
-                )?;
+                write!(stdout, "{}", status::render(&tasks, &dashboard))?;
             }
             Ok(0)
         }
@@ -283,32 +276,6 @@ where
             Ok(0)
         }
     }
-}
-
-struct StatusCounts {
-    todo: usize,
-    in_progress: usize,
-    done: usize,
-}
-
-fn status_counts(tasks: &[Task]) -> StatusCounts {
-    let mut counts = StatusCounts {
-        todo: 0,
-        in_progress: 0,
-        done: 0,
-    };
-
-    for task in tasks {
-        if task.completed {
-            counts.done += 1;
-        } else if task.started_at.is_some() {
-            counts.in_progress += 1;
-        } else {
-            counts.todo += 1;
-        }
-    }
-
-    counts
 }
 
 fn resolved_store() -> anyhow::Result<std::path::PathBuf> {
