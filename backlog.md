@@ -7,13 +7,11 @@ incomplete.
 
 ## Active
 
-- [ ] Add `list` filters (`--all`, `--completed`, `--in-progress`,
-      `--blocked`, `--ready`, `--flat`, positional id/search) and tree view
+- [ ] Add `show --full`, multiple ids to `show`, `start --force`,
+      `delete --force`, and `status` as the default command
 
 ## Backlog
 
-- [ ] Add `show --full`, multiple ids to `show`, `start --force`,
-      `delete --force`, and `status` as the default command
 
 ## Deferred
 
@@ -32,6 +30,8 @@ incomplete.
 - [x] Add `--result` / `-r`, `--commit`, and `--no-commit` to `complete`
 - [x] Add `--parent` and `--blocked-by` to `create`; `--parent`,
       `--add-blocker`, `--remove-blocker`, and `--commit` to `edit`
+- [x] Add `list` filters (`--all`, `--completed`, `--in-progress`,
+      `--blocked`, `--ready`, `--flat`, positional id/search) and tree view
 
 - [x] Write the dexrs MVP design spec
 - [x] Write the dexrs MVP implementation plan

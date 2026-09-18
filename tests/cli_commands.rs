@@ -621,3 +621,136 @@ fn edit_short_name_flag_and_commit_link() {
     assert_eq!(task.name, "After");
     assert_eq!(task.metadata.unwrap()["commit"]["sha"], sha);
 }
+
+fn list(store: &std::path::Path, args: &[&str]) -> String {
+    let output = dexrs(store)
+        .arg("list")
+        .args(args)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    String::from_utf8(output).unwrap()
+}
+
+#[test]
+fn list_hides_completed_unless_asked() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let open = create(&store, &["Open"]);
+    let done = create(&store, &["Done"]);
+    dexrs(&store)
+        .args(["complete", &done, "-r", "x"])
+        .assert()
+        .success();
+
+    let default = list(&store, &[]);
+    assert!(default.contains(&open) && !default.contains(&done), "{default}");
+
+    let all = list(&store, &["--all"]);
+    assert!(all.contains(&open) && all.contains(&done), "{all}");
+
+    let completed = list(&store, &["--completed"]);
+    assert!(!completed.contains(&open) && completed.contains(&done), "{completed}");
+}
+
+#[test]
+fn list_renders_children_as_a_tree_sorted_by_priority_then_id() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let parent = create(&store, &["Parent"]);
+    let child_a = create(&store, &["Child A", "--parent", &parent]);
+    let child_b = create(&store, &["Child B", "--parent", &parent, "-p", "2"]);
+    let later = create(&store, &["Later", "-p", "3"]);
+
+    let output = list(&store, &[]);
+
+    let expected = format!(
+        "[ ] {parent}: Parent\n├── [ ] {child_a}: Child A\n└── [ ] {child_b} [p2]: Child B\n[ ] {later} [p3]: Later\n"
+    );
+    assert_eq!(output, expected);
+}
+
+#[test]
+fn list_shows_blocker_indicator_only_while_blocker_is_open() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let blocker = create(&store, &["Blocker"]);
+    let blocked = create(&store, &["Blocked", "--blocked-by", &blocker]);
+
+    assert!(list(&store, &[]).contains(&format!("{blocked} [B: {blocker}]: Blocked")));
+
+    dexrs(&store)
+        .args(["complete", &blocker, "-r", "x"])
+        .assert()
+        .success();
+    assert!(list(&store, &[]).contains(&format!("{blocked}: Blocked")));
+}
+
+#[test]
+fn list_filters_ready_blocked_and_in_progress() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let ready = create(&store, &["Ready"]);
+    let started = create(&store, &["Started"]);
+    let blocked = create(&store, &["Blocked", "--blocked-by", &ready]);
+    dexrs(&store).args(["start", &started]).assert().success();
+
+    let output = list(&store, &["--ready"]);
+    assert!(output.contains(&ready) && !output.contains(&started) && !output.contains(&blocked), "{output}");
+
+    let output = list(&store, &["--blocked"]);
+    assert!(!output.contains(": Ready") && output.contains(": Blocked"), "{output}");
+
+    let output = list(&store, &["--in-progress"]);
+    assert!(output.contains(&format!("[>] {started}")) && !output.contains(&ready), "{output}");
+}
+
+#[test]
+fn list_filter_keeps_ancestors_for_context() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let parent = create(&store, &["Parent"]);
+    let child = create(&store, &["Child", "--parent", &parent]);
+    let sibling = create(&store, &["Sibling", "--parent", &parent]);
+    dexrs(&store).args(["start", &child]).assert().success();
+
+    let output = list(&store, &["--in-progress"]);
+
+    assert_eq!(output, format!("[ ] {parent}: Parent\n└── [>] {child}: Child\n"));
+    assert!(!output.contains(&sibling));
+}
+
+#[test]
+fn list_positional_argument_selects_subtree_or_searches() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let parent = create(&store, &["Parent"]);
+    let child = create(&store, &["Child", "--parent", &parent]);
+    let other = create(&store, &["Other", "-d", "mentions needle here"]);
+
+    let output = list(&store, &[&parent]);
+    assert!(output.contains(&parent) && output.contains(&child) && !output.contains(&other), "{output}");
+
+    let output = list(&store, &["needle"]);
+    assert!(output.contains(&other) && !output.contains(&parent), "{output}");
+
+    let output = list(&store, &["--query", "NEEDLE"]);
+    assert!(output.contains(&other), "{output}");
+}
+
+#[test]
+fn list_flat_drops_tree_prefixes_and_empty_list_says_so() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    assert_eq!(list(&store, &[]), "No tasks found.\n");
+
+    let parent = create(&store, &["Parent"]);
+    let child = create(&store, &["Child", "--parent", &parent]);
+
+    let output = list(&store, &["--flat"]);
+    let mut lines = [format!("[ ] {child}: Child"), format!("[ ] {parent}: Parent")];
+    lines.sort();
+    assert_eq!(output, format!("{}\n{}\n", lines[0], lines[1]));
+}

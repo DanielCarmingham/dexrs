@@ -6,6 +6,7 @@ use serde_json::json;
 
 use crate::cli::{Cli, Command};
 use crate::git;
+use crate::listing::{self, ListFilter, status_icon};
 use crate::relations;
 use crate::store;
 use crate::task::{Task, generate_id, timestamp};
@@ -196,16 +197,36 @@ where
             }
             Ok(0)
         }
-        Command::List { json } => {
+        Command::List {
+            filter,
+            all,
+            completed,
+            in_progress,
+            blocked,
+            ready,
+            flat,
+            query,
+            json,
+        } => {
             let store = resolved_store()?;
-            let mut tasks = store::read_tasks(&store)?;
-            tasks.sort_by(|left, right| left.id.cmp(&right.id));
+            let tasks = store::read_tasks(&store)?;
+            let filter = ListFilter {
+                all,
+                completed,
+                in_progress,
+                blocked,
+                ready,
+                query: filter.or(query),
+            };
+            let selected = listing::select(&tasks, &filter);
             if json {
-                writeln!(stdout, "{}", serde_json::to_string(&tasks)?)?;
+                writeln!(stdout, "{}", serde_json::to_string(&selected)?)?;
+            } else if selected.is_empty() {
+                writeln!(stdout, "No tasks found.")?;
+            } else if flat {
+                write!(stdout, "{}", listing::render_flat(&tasks, &selected))?;
             } else {
-                for task in tasks {
-                    writeln!(stdout, "{} {} {}", status_icon(&task), task.id, task.name)?;
-                }
+                write!(stdout, "{}", listing::render_tree(&tasks, &selected))?;
             }
             Ok(0)
         }
@@ -254,16 +275,6 @@ fn status_counts(tasks: &[Task]) -> StatusCounts {
     }
 
     counts
-}
-
-fn status_icon(task: &Task) -> &'static str {
-    if task.completed {
-        "[x]"
-    } else if task.started_at.is_some() {
-        "[>]"
-    } else {
-        "[ ]"
-    }
 }
 
 fn resolved_store() -> anyhow::Result<std::path::PathBuf> {

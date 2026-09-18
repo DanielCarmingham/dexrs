@@ -68,6 +68,21 @@ pub enum Command {
     },
     #[command(alias = "ls")]
     List {
+        filter: Option<String>,
+        #[arg(short, long)]
+        all: bool,
+        #[arg(short, long)]
+        completed: bool,
+        #[arg(short, long)]
+        in_progress: bool,
+        #[arg(short, long)]
+        blocked: bool,
+        #[arg(short, long)]
+        ready: bool,
+        #[arg(short, long)]
+        flat: bool,
+        #[arg(short, long, conflicts_with = "filter")]
+        query: Option<String>,
         #[arg(long)]
         json: bool,
     },

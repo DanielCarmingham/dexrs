@@ -1,6 +1,7 @@
 mod cli;
 mod commands;
 mod git;
+pub mod listing;
 pub mod relations;
 pub mod store;
 pub mod task;
