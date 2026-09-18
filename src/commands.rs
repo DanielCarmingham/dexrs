@@ -6,7 +6,7 @@ use serde_json::json;
 
 use crate::cli::{Cli, Command};
 use crate::store;
-use crate::task::{Priority, Task, generate_id, timestamp};
+use crate::task::{Task, generate_id, timestamp};
 use crate::validate::validate_completion;
 
 pub fn run<I, W, E>(args: I, mut stdout: W, _stderr: E) -> anyhow::Result<i32>
@@ -89,10 +89,10 @@ where
                     task.name = name;
                 }
                 if let Some(description) = description {
-                    task.description = Some(description);
+                    task.description = description;
                 }
                 if let Some(priority) = priority {
-                    task.priority = Some(Priority::String(priority));
+                    task.priority = priority;
                 }
                 task.updated_at = Some(timestamp());
                 Ok(())
@@ -168,12 +168,10 @@ where
                 writeln!(stdout, "{}", serde_json::to_string(task)?)?;
             } else {
                 writeln!(stdout, "{} {} {}", status_icon(task), task.id, task.name)?;
-                if let Some(description) = &task.description {
-                    writeln!(stdout, "{description}")?;
+                if !task.description.is_empty() {
+                    writeln!(stdout, "{}", task.description)?;
                 }
-                if let Some(priority) = &task.priority {
-                    writeln!(stdout, "priority: {priority}")?;
-                }
+                writeln!(stdout, "priority: {}", task.priority)?;
             }
             Ok(0)
         }

@@ -140,7 +140,7 @@ fn edit_and_update_change_task_fields() {
             "--description",
             "Details",
             "--priority",
-            "low",
+            "3",
         ])
         .assert()
         .success();
@@ -148,17 +148,14 @@ fn edit_and_update_change_task_fields() {
     assert_cmd::Command::cargo_bin("dexrs")
         .unwrap()
         .env("DEX_STORAGE_PATH", &store)
-        .args(["update", &id, "--priority", "high"])
+        .args(["update", &id, "--priority", "2"])
         .assert()
         .success();
 
     let task = read_tasks(&store).pop().unwrap();
     assert_eq!(task.name, "New");
-    assert_eq!(task.description.as_deref(), Some("Details"));
-    assert_eq!(
-        task.priority.as_ref().map(ToString::to_string).as_deref(),
-        Some("high")
-    );
+    assert_eq!(task.description, "Details");
+    assert_eq!(task.priority, 2);
 }
 
 #[test]
@@ -356,4 +353,38 @@ fn init_creates_store_directory_and_empty_task_file() {
         std::fs::read_to_string(store.join("tasks.jsonl")).unwrap(),
         ""
     );
+}
+
+#[test]
+fn create_writes_record_the_original_dex_schema_accepts() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+
+    assert_cmd::Command::cargo_bin("dexrs")
+        .unwrap()
+        .env("DEX_STORAGE_PATH", &store)
+        .args(["create", "Bare"])
+        .assert()
+        .success();
+
+    let raw = std::fs::read_to_string(store.join("tasks.jsonl")).unwrap();
+    assert!(raw.contains(r#""description":"""#), "{raw}");
+    assert!(raw.contains(r#""priority":1"#), "{raw}");
+
+    let Some(reference) = std::env::var_os("DEX_REFERENCE_BIN") else {
+        return;
+    };
+    let output = std::process::Command::new(reference)
+        .current_dir(temp.path())
+        .env("DEX_STORAGE_PATH", &store)
+        .env("NO_COLOR", "1")
+        .args(["list", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "reference dex rejected the store:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Bare"));
 }

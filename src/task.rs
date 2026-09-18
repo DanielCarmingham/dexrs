@@ -1,14 +1,15 @@
 use serde::{Deserialize, Serialize};
-use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+pub const DEFAULT_PRIORITY: i64 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Task {
     pub id: String,
     pub parent_id: Option<String>,
     pub name: String,
-    pub description: Option<String>,
-    pub priority: Option<Priority>,
+    pub description: String,
+    pub priority: i64,
     pub completed: bool,
     pub result: Option<String>,
     pub metadata: Option<serde_json::Value>,
@@ -27,15 +28,15 @@ impl Task {
         id: String,
         name: String,
         description: Option<String>,
-        priority: Option<String>,
+        priority: Option<i64>,
     ) -> Self {
         let now = timestamp();
         Self {
             id,
             parent_id: None,
             name,
-            description,
-            priority: priority.map(Priority::String),
+            description: description.unwrap_or_default(),
+            priority: priority.unwrap_or(DEFAULT_PRIORITY),
             completed: false,
             result: None,
             metadata: None,
@@ -46,22 +47,6 @@ impl Task {
             blocked_by: Vec::new(),
             blocks: Vec::new(),
             children: Vec::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum Priority {
-    String(String),
-    Number(serde_json::Number),
-}
-
-impl fmt::Display for Priority {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Priority::String(priority) => formatter.write_str(priority),
-            Priority::Number(priority) => write!(formatter, "{priority}"),
         }
     }
 }

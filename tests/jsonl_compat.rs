@@ -1,4 +1,4 @@
-use dexrs::task::{parse_tasks_jsonl, serialize_tasks_jsonl};
+use dexrs::task::{Task, parse_tasks_jsonl, serialize_tasks_jsonl};
 use dexrs::validate::{validate_completion, validate_tasks};
 
 #[test]
@@ -11,15 +11,8 @@ fn parses_dex_compatible_jsonl_fixture() {
     assert_eq!(tasks[0].id, "abc123xy");
     assert_eq!(tasks[0].parent_id, None);
     assert_eq!(tasks[0].name, "Parent task");
-    assert_eq!(tasks[0].description.as_deref(), Some("Top-level work"));
-    assert_eq!(
-        tasks[0]
-            .priority
-            .as_ref()
-            .map(ToString::to_string)
-            .as_deref(),
-        Some("high")
-    );
+    assert_eq!(tasks[0].description, "Top-level work");
+    assert_eq!(tasks[0].priority, 2);
     assert!(!tasks[0].completed);
     assert_eq!(tasks[0].blocks, vec!["def456uv"]);
     assert_eq!(tasks[0].children, vec!["def456uv"]);
@@ -114,4 +107,14 @@ fn validate_completion_rejects_incomplete_children_without_force() {
 
     assert!(error.contains("incomplete child def456uv"));
     validate_completion(&tasks, "abc123xy", true).unwrap();
+}
+
+#[test]
+fn new_task_defaults_match_original_dex_record_shape() {
+    let task = Task::new("aaaaaaaa".to_string(), "Bare".to_string(), None, None);
+
+    let output = serialize_tasks_jsonl(&[task]).unwrap();
+
+    assert!(output.contains(r#""description":"""#), "{output}");
+    assert!(output.contains(r#""priority":1"#), "{output}");
 }

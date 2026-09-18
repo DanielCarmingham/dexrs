@@ -17,7 +17,7 @@ pub enum Command {
         #[arg(short, long)]
         description: Option<String>,
         #[arg(short, long)]
-        priority: Option<String>,
+        priority: Option<i64>,
     },
     Start {
         id: String,
@@ -37,7 +37,7 @@ pub enum Command {
         #[arg(short, long)]
         description: Option<String>,
         #[arg(short, long)]
-        priority: Option<String>,
+        priority: Option<i64>,
     },
     #[command(alias = "rm", alias = "remove")]
     Delete {
