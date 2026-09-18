@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -7,7 +8,7 @@ pub struct Task {
     pub parent_id: Option<String>,
     pub name: String,
     pub description: Option<String>,
-    pub priority: Option<String>,
+    pub priority: Option<Priority>,
     pub completed: bool,
     pub result: Option<String>,
     pub metadata: Option<serde_json::Value>,
@@ -34,7 +35,7 @@ impl Task {
             parent_id: None,
             name,
             description,
-            priority,
+            priority: priority.map(Priority::String),
             completed: false,
             result: None,
             metadata: None,
@@ -45,6 +46,22 @@ impl Task {
             blocked_by: Vec::new(),
             blocks: Vec::new(),
             children: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Priority {
+    String(String),
+    Number(serde_json::Number),
+}
+
+impl fmt::Display for Priority {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Priority::String(priority) => formatter.write_str(priority),
+            Priority::Number(priority) => write!(formatter, "{priority}"),
         }
     }
 }

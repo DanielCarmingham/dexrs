@@ -12,7 +12,14 @@ fn parses_dex_compatible_jsonl_fixture() {
     assert_eq!(tasks[0].parent_id, None);
     assert_eq!(tasks[0].name, "Parent task");
     assert_eq!(tasks[0].description.as_deref(), Some("Top-level work"));
-    assert_eq!(tasks[0].priority.as_deref(), Some("high"));
+    assert_eq!(
+        tasks[0]
+            .priority
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
+        Some("high")
+    );
     assert!(!tasks[0].completed);
     assert_eq!(tasks[0].blocks, vec!["def456uv"]);
     assert_eq!(tasks[0].children, vec!["def456uv"]);
@@ -25,6 +32,17 @@ fn parses_dex_compatible_jsonl_fixture() {
     assert!(tasks[1].completed);
     assert_eq!(tasks[1].result.as_deref(), Some("done"));
     assert_eq!(tasks[1].blocked_by, vec!["abc123xy"]);
+}
+
+#[test]
+fn parses_original_dex_numeric_priority() {
+    let input = r#"{"id":"6gzsamjl","parent_id":null,"name":"test","description":"more description details","priority":1,"completed":false,"result":null,"metadata":null,"created_at":"2026-08-18T07:23:06.600Z","updated_at":"2026-08-18T07:23:06.600Z","started_at":null,"completed_at":null,"blockedBy":[],"blocks":[],"children":[]}"#;
+
+    let tasks = parse_tasks_jsonl(input).unwrap();
+    let output = serialize_tasks_jsonl(&tasks).unwrap();
+
+    assert_eq!(tasks.len(), 1);
+    assert!(output.contains(r#""priority":1"#));
 }
 
 #[test]

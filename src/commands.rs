@@ -6,7 +6,7 @@ use serde_json::json;
 
 use crate::cli::{Cli, Command};
 use crate::store;
-use crate::task::{Task, generate_id, timestamp};
+use crate::task::{Priority, Task, generate_id, timestamp};
 use crate::validate::validate_completion;
 
 pub fn run<I, W, E>(args: I, mut stdout: W, _stderr: E) -> anyhow::Result<i32>
@@ -92,7 +92,7 @@ where
                     task.description = Some(description);
                 }
                 if let Some(priority) = priority {
-                    task.priority = Some(priority);
+                    task.priority = Some(Priority::String(priority));
                 }
                 task.updated_at = Some(timestamp());
                 Ok(())

@@ -155,7 +155,10 @@ fn edit_and_update_change_task_fields() {
     let task = read_tasks(&store).pop().unwrap();
     assert_eq!(task.name, "New");
     assert_eq!(task.description.as_deref(), Some("Details"));
-    assert_eq!(task.priority.as_deref(), Some("high"));
+    assert_eq!(
+        task.priority.as_ref().map(ToString::to_string).as_deref(),
+        Some("high")
+    );
 }
 
 #[test]
