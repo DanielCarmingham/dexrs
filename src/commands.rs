@@ -1,6 +1,7 @@
 use std::ffi::OsString;
 use std::io::Write;
 
+use anyhow::Context;
 use clap::Parser;
 use serde_json::json;
 
@@ -65,6 +66,25 @@ where
                 Ok(task)
             })?;
             writeln!(stdout, "created {}", task.id)?;
+            Ok(0)
+        }
+        Command::Plan {
+            file,
+            priority,
+            parent,
+        } => {
+            let contents = std::fs::read_to_string(&file)
+                .with_context(|| format!("failed to read plan file {}", file.display()))?;
+            let name = plan_name(&file, &contents);
+            let store = resolved_store()?;
+            let (task, line) = store::transact(&store, |tasks| {
+                let id = generate_id(|candidate| tasks.iter().any(|task| task.id == candidate));
+                let task = Task::new(id.clone(), name, Some(contents), priority);
+                tasks.push(task.clone());
+                relations::set_parent(tasks, &id, parent.as_deref())?;
+                Ok((task, listing::task_line(tasks, &tasks[tasks.len() - 1])))
+            })?;
+            writeln!(stdout, "Created task {} from plan\n{line}", task.id)?;
             Ok(0)
         }
         Command::Start { id, force } => {
@@ -281,6 +301,23 @@ where
 fn resolved_store() -> anyhow::Result<std::path::PathBuf> {
     let cwd = std::env::current_dir()?;
     store::resolve_store_dir(&cwd, std::env::var_os("DEX_STORAGE_PATH").as_deref())
+}
+
+fn plan_name(file: &std::path::Path, contents: &str) -> String {
+    contents
+        .lines()
+        .map(str::trim)
+        .find_map(|line| {
+            let heading = line.trim_start_matches('#');
+            (heading.len() < line.len() && heading.starts_with(' ')).then(|| heading.trim())
+        })
+        .filter(|heading| !heading.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            file.file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "plan".to_string())
+        })
 }
 
 fn set_metadata(task: &mut Task, key: &str, value: serde_json::Value) {

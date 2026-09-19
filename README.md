@@ -36,9 +36,10 @@ share a `.dex/tasks.jsonl` file.
 - `edit` / `update` `<id>`, `-n`, `-d`, `-p`, `--parent`, `--add-blocker`,
   `--remove-blocker`, `--commit`
 - `delete` / `rm` / `remove` `<id>`, `--force`
+- `plan <file>`, `-p`, `--parent`
 
-Not implemented: `config`, `mcp`, `archive`, `plan`, `sync`, `import`,
-`export`, `completion`, and the `--issue` / `--commit` lookups on `list`.
+Not implemented: `config`, `mcp`, `archive`, `sync`, `import`, `export`,
+`completion`, and the `--issue` / `--commit` lookups on `list`.
 
 ## Testing Against the Original
 

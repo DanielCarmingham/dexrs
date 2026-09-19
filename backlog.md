@@ -19,7 +19,6 @@ No active implementation task.
 - [ ] Shortcut sync
 - [ ] Archive/import/export commands
 - [ ] Shell completions
-- [ ] `dex plan`
 - [ ] `dex config`
 
 ## Done
@@ -34,6 +33,7 @@ No active implementation task.
 - [x] Add `show --full`, multiple ids to `show`, `start --force`,
       `delete --force`, and `status` as the default command
 - [x] Match the original `status` dashboard and `--json` shape
+- [x] Implement `plan <file>`
 
 - [x] Write the dexrs MVP design spec
 - [x] Write the dexrs MVP implementation plan

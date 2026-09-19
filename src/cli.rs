@@ -25,6 +25,13 @@ pub enum Command {
         #[arg(short, long)]
         blocked_by: Option<String>,
     },
+    Plan {
+        file: std::path::PathBuf,
+        #[arg(short, long)]
+        priority: Option<i64>,
+        #[arg(long)]
+        parent: Option<String>,
+    },
     Start {
         id: String,
         #[arg(short, long)]

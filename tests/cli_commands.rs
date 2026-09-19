@@ -1024,3 +1024,69 @@ fn status_json_matches_original_shape() {
         serde_json::json!([])
     );
 }
+
+#[test]
+fn plan_creates_task_named_after_first_heading_with_file_as_description() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let plan = temp.path().join("feature-plan.md");
+    let body = "# Add user auth\n\nIntro.\n\n## Requirements\n\n- JWT\n";
+    std::fs::write(&plan, body).unwrap();
+
+    let output = dexrs(&store)
+        .args(["plan", plan.to_str().unwrap(), "-p", "2"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let output = String::from_utf8(output).unwrap();
+
+    let task = read_tasks(&store).pop().unwrap();
+    assert_eq!(task.name, "Add user auth");
+    assert_eq!(task.description, body);
+    assert_eq!(task.priority, 2);
+    assert_eq!(
+        output,
+        format!(
+            "Created task {} from plan\n[ ] {} [p2]: Add user auth\n",
+            task.id, task.id
+        )
+    );
+}
+
+#[test]
+fn plan_without_heading_uses_file_stem_and_links_parent() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let parent = create(&store, &["Epic"]);
+    let plan = temp.path().join("rollout-steps.md");
+    std::fs::write(&plan, "just a body\n").unwrap();
+
+    dexrs(&store)
+        .args(["plan", plan.to_str().unwrap(), "--parent", &parent])
+        .assert()
+        .success();
+
+    let child = read_tasks(&store)
+        .into_iter()
+        .find(|task| task.id != parent)
+        .unwrap();
+    assert_eq!(child.name, "rollout-steps");
+    assert_eq!(child.parent_id.as_deref(), Some(parent.as_str()));
+    assert_eq!(task(&store, &parent).children, vec![child.id]);
+}
+
+#[test]
+fn plan_with_missing_file_fails_without_creating_a_task() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+
+    dexrs(&store)
+        .args(["plan", "nope.md"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("nope.md"));
+
+    assert!(read_tasks(&store).is_empty());
+}
