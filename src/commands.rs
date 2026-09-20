@@ -12,6 +12,7 @@ use crate::cli::{Cli, Command};
 use crate::config;
 use crate::git;
 use crate::listing::{self, ListFilter};
+use crate::mcp;
 use crate::relations;
 use crate::service;
 use crate::show;
@@ -66,6 +67,24 @@ where
     };
 
     match command {
+        Command::Mcp { help } => {
+            if help {
+                write!(stdout, "{}", mcp::help_text(&invoked_as))?;
+                return Ok(0);
+            }
+            let store = resolved_store()?;
+            let config = load_config()?;
+            let cwd = std::env::current_dir()?;
+            let server = mcp::Server {
+                store_dir: &store,
+                cwd: &cwd,
+                config: &config,
+                write_options: &write_options()?,
+            };
+            let stdin = std::io::stdin();
+            server.serve(stdin.lock(), &mut stdout)?;
+            Ok(0)
+        }
         Command::Sync {
             task_id,
             github,

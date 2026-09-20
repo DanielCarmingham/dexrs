@@ -4,6 +4,7 @@ mod commands;
 pub mod config;
 mod git;
 pub mod listing;
+pub mod mcp;
 pub mod relations;
 pub mod service;
 mod show;

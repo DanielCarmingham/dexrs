@@ -7,11 +7,10 @@ incomplete.
 
 ## Active
 
-- [ ] `mcp` stdio server with create_task, update_task, list_tasks
+- [ ] `doctor`, `help`, and `version` subcommands
 
 ## Backlog
 
-- [ ] `doctor`, `help`, and `version` subcommands
 
 ## Deferred
 
@@ -28,6 +27,7 @@ Nothing. Full parity with dex v0.16 is the goal.
       states, and the label cache, tested against a mock API
 - [x] `sync`, `import`, and `export` commands, auto-sync after mutations,
       and closing remote issues on delete
+- [x] `mcp` stdio server with create_task, update_task, and list_tasks
 
 - [x] Write dex-compatible task records (`description` string, numeric
       `priority` defaulting to 1), verified against the real dex binary

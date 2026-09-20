@@ -51,6 +51,11 @@ pub enum Command {
     Completion {
         shell: clap_complete::Shell,
     },
+    #[command(disable_help_flag = true)]
+    Mcp {
+        #[arg(short = 'h', long = "help")]
+        help: bool,
+    },
     Sync {
         task_id: Option<String>,
         #[arg(long, conflicts_with = "shortcut")]
