@@ -5,10 +5,12 @@ pub mod config;
 mod git;
 pub mod listing;
 pub mod relations;
+pub mod service;
 mod show;
 mod status;
 pub mod store;
 pub mod sync;
+mod sync_commands;
 pub mod task;
 pub mod validate;
 

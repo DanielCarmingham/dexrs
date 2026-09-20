@@ -51,6 +51,33 @@ pub enum Command {
     Completion {
         shell: clap_complete::Shell,
     },
+    Sync {
+        task_id: Option<String>,
+        #[arg(long, conflicts_with = "shortcut")]
+        github: bool,
+        #[arg(long)]
+        shortcut: bool,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    Import {
+        reference: Option<String>,
+        #[arg(long)]
+        all: bool,
+        #[arg(long, conflicts_with = "shortcut")]
+        github: bool,
+        #[arg(long)]
+        shortcut: bool,
+        #[arg(long)]
+        update: bool,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    Export {
+        ids: Vec<String>,
+        #[arg(long)]
+        dry_run: bool,
+    },
     Archive {
         id: Option<String>,
         #[arg(long, conflicts_with_all = ["id", "older_than"])]

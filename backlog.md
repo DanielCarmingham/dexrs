@@ -7,11 +7,10 @@ incomplete.
 
 ## Active
 
-- [ ] `sync`, `import`, `export` commands and auto-sync on mutations
+- [ ] `mcp` stdio server with create_task, update_task, list_tasks
 
 ## Backlog
 
-- [ ] `mcp` stdio server with create_task, update_task, list_tasks
 - [ ] `doctor`, `help`, and `version` subcommands
 
 ## Deferred
@@ -27,6 +26,8 @@ Nothing. Full parity with dex v0.16 is the goal.
       pull-from-remote, and not-closing reasons, tested against a mock API
 - [x] Shortcut sync service with stories, subtasks, blocker links, workflow
       states, and the label cache, tested against a mock API
+- [x] `sync`, `import`, and `export` commands, auto-sync after mutations,
+      and closing remote issues on delete
 
 - [x] Write dex-compatible task records (`description` string, numeric
       `priority` defaulting to 1), verified against the real dex binary

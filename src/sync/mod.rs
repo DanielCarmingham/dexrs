@@ -1,4 +1,5 @@
 pub mod github;
+pub mod registry;
 pub mod shortcut;
 pub mod state;
 

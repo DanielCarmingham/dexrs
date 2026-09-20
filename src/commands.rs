@@ -13,9 +13,12 @@ use crate::config;
 use crate::git;
 use crate::listing::{self, ListFilter};
 use crate::relations;
+use crate::service;
 use crate::show;
 use crate::status;
 use crate::store;
+use crate::sync::registry;
+use crate::sync_commands;
 use crate::task::{Task, generate_id, serialize_tasks_jsonl, timestamp};
 use crate::validate::validate_completion;
 
@@ -41,14 +44,96 @@ where
         env_storage_path: env_storage_path.as_deref(),
     };
     let resolved_store = || store::resolve_store_dir(&std::env::current_dir()?, &resolution);
+    let load_config = || config::load(&std::env::current_dir()?, resolution.cli_config_path);
     let write_options = || -> anyhow::Result<store::WriteOptions> {
-        let config = config::load(&std::env::current_dir()?, resolution.cli_config_path)?;
         Ok(store::WriteOptions {
-            auto_archive: Some(config.archive),
+            auto_archive: Some(load_config()?.archive),
         })
+    };
+    // Mirrors the original's post-mutation hook: sync the task to every
+    // configured integration, then re-read so the printed card carries any
+    // metadata the sync saved.
+    let after_mutation = |store: &std::path::Path, id: &str| -> anyhow::Result<Vec<Task>> {
+        let config = load_config()?;
+        registry::auto_sync(
+            store,
+            &write_options()?,
+            &config,
+            &std::env::current_dir()?,
+            id,
+        );
+        store::read_tasks(store)
     };
 
     match command {
+        Command::Sync {
+            task_id,
+            github,
+            shortcut,
+            dry_run,
+        } => {
+            let store = resolved_store()?;
+            let config = load_config()?;
+            let cwd = std::env::current_dir()?;
+            let ctx = sync_commands::Context {
+                store_dir: &store,
+                cwd: &cwd,
+                config: &config,
+                write_options: &write_options()?,
+            };
+            sync_commands::sync(
+                &ctx,
+                sync_commands::SyncArgs {
+                    task_id,
+                    github,
+                    shortcut,
+                    dry_run,
+                },
+                &mut stdout,
+            )
+        }
+        Command::Import {
+            reference,
+            all,
+            github,
+            shortcut,
+            update,
+            dry_run,
+        } => {
+            let store = resolved_store()?;
+            let config = load_config()?;
+            let cwd = std::env::current_dir()?;
+            let ctx = sync_commands::Context {
+                store_dir: &store,
+                cwd: &cwd,
+                config: &config,
+                write_options: &write_options()?,
+            };
+            sync_commands::import(
+                &ctx,
+                sync_commands::ImportArgs {
+                    reference,
+                    all,
+                    github,
+                    shortcut,
+                    update,
+                    dry_run,
+                },
+                &mut stdout,
+            )
+        }
+        Command::Export { ids, dry_run } => {
+            let store = resolved_store()?;
+            let config = load_config()?;
+            let cwd = std::env::current_dir()?;
+            let ctx = sync_commands::Context {
+                store_dir: &store,
+                cwd: &cwd,
+                config: &config,
+                write_options: &write_options()?,
+            };
+            sync_commands::export(&ctx, &ids, dry_run, &mut stdout)
+        }
         Command::Completion { shell } => {
             let mut command = <Cli as clap::CommandFactory>::command().name(invoked_as.clone());
             clap_complete::generate(shell, &mut command, invoked_as, &mut stdout);
@@ -203,7 +288,7 @@ where
                 anyhow::bail!("task name is required\nUsage: dexrs create \"name\" [options]");
             };
             let store = resolved_store()?;
-            let (id, tasks) = store::transact_with(&store, &write_options()?, |tasks| {
+            let id = store::transact_with(&store, &write_options()?, |tasks| {
                 let id = generate_id(|candidate| tasks.iter().any(|task| task.id == candidate));
                 tasks.push(Task::new(id.clone(), name, description, priority));
                 relations::set_parent(tasks, &id, parent.as_deref(), relations::Placement::Create)?;
@@ -213,8 +298,9 @@ where
                 {
                     relations::add_blocker(tasks, &id, blocker)?;
                 }
-                Ok((id, tasks.clone()))
+                Ok(id)
             })?;
+            let tasks = after_mutation(&store, &id)?;
             writeln!(stdout, "Created task {id}")?;
             write!(stdout, "{}", card(&tasks, &id))?;
             Ok(0)
@@ -296,19 +382,25 @@ where
                 .with_context(|| format!("failed to read plan file {}", file.display()))?;
             let name = plan_name(&file, &contents);
             let store = resolved_store()?;
-            let (task, line) = store::transact_with(&store, &write_options()?, |tasks| {
+            let id = store::transact_with(&store, &write_options()?, |tasks| {
                 let id = generate_id(|candidate| tasks.iter().any(|task| task.id == candidate));
-                let task = Task::new(id.clone(), name, Some(contents), priority);
-                tasks.push(task.clone());
+                tasks.push(Task::new(id.clone(), name, Some(contents), priority));
                 relations::set_parent(tasks, &id, parent.as_deref(), relations::Placement::Create)?;
-                Ok((task, listing::task_line(tasks, &tasks[tasks.len() - 1])))
+                Ok(id)
             })?;
-            writeln!(stdout, "Created task {} from plan\n{line}", task.id)?;
+            let tasks = after_mutation(&store, &id)?;
+            let task =
+                listing::find(&tasks, &id).ok_or_else(|| anyhow::anyhow!("task {id} not found"))?;
+            writeln!(
+                stdout,
+                "Created task {id} from plan\n{}",
+                listing::task_line(&tasks, task)
+            )?;
             Ok(0)
         }
         Command::Start { id, force } => {
             let store = resolved_store()?;
-            let tasks = store::transact_with(&store, &write_options()?, |tasks| {
+            store::transact_with(&store, &write_options()?, |tasks| {
                 let now = timestamp();
                 let task = find_task_mut(tasks, &id)?;
                 if listing::is_in_progress(task) && !force {
@@ -320,8 +412,9 @@ where
                 task.started_at = Some(now.clone());
                 task.updated_at = Some(now);
                 task.completed = false;
-                Ok(tasks.clone())
+                Ok(())
             })?;
+            let tasks = after_mutation(&store, &id)?;
             writeln!(stdout, "Started task {id}")?;
             write!(stdout, "{}", card(&tasks, &id))?;
             Ok(0)
@@ -434,7 +527,7 @@ where
                 .map(|reference| git::commit_metadata(&std::env::current_dir()?, &reference))
                 .transpose()?;
             let store = resolved_store()?;
-            let tasks = store::transact_with(&store, &write_options()?, |tasks| {
+            store::transact_with(&store, &write_options()?, |tasks| {
                 if let Some(parent) = &parent {
                     relations::set_parent(tasks, &id, Some(parent), relations::Placement::Move)?;
                 }
@@ -464,8 +557,9 @@ where
                     set_metadata(task, "commit", commit);
                 }
                 task.updated_at = Some(timestamp());
-                Ok(tasks.clone())
+                Ok(())
             })?;
+            let tasks = after_mutation(&store, &id)?;
             writeln!(stdout, "Updated task {id}")?;
             let task =
                 listing::find(&tasks, &id).ok_or_else(|| anyhow::anyhow!("task {id} not found"))?;
@@ -474,27 +568,19 @@ where
         }
         Command::Delete { id, force } => {
             let store = resolved_store()?;
-            let removed = store::transact_with(&store, &write_options()?, |tasks| {
+            let removed_tasks = store::transact_with(&store, &write_options()?, |tasks| {
                 find_task_mut(tasks, &id)?;
-                let subtree: std::collections::HashSet<String> = relations::subtree_ids(tasks, &id)
-                    .into_iter()
-                    .map(str::to_string)
-                    .collect();
-                let subtasks = subtree.len() - 1;
+                let subtasks = relations::subtree_ids(tasks, &id).len() - 1;
                 if subtasks > 0 && !force {
                     anyhow::bail!(
                         "task {id} has {subtasks} subtasks that would also be deleted\n\
                          Hint: Use --force to delete the task and its subtasks"
                     );
                 }
-                tasks.retain(|task| !subtree.contains(&task.id));
-                for task in tasks {
-                    task.children.retain(|child| !subtree.contains(child));
-                    task.blocked_by.retain(|blocker| !subtree.contains(blocker));
-                    task.blocks.retain(|blocked| !subtree.contains(blocked));
-                }
-                Ok(subtasks)
+                service::delete(tasks, &id)
             })?;
+            registry::close_remotes(&load_config()?, &std::env::current_dir()?, &removed_tasks);
+            let removed = removed_tasks.len() - 1;
             match removed {
                 0 => writeln!(stdout, "Deleted task {id}")?,
                 1 => writeln!(stdout, "Deleted task {id} and 1 subtask")?,
