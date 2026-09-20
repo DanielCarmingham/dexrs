@@ -24,10 +24,22 @@ where
     W: Write,
     E: Write,
 {
-    let cli = Cli::parse_from(args);
+    let args: Vec<OsString> = args.into_iter().collect();
+    let invoked_as = args
+        .first()
+        .map(std::path::Path::new)
+        .and_then(std::path::Path::file_stem)
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "dexrs".to_string());
+    let cli = Cli::parse_from(&args);
     let command = cli.command.unwrap_or(Command::Status { json: false });
 
     match command {
+        Command::Completion { shell } => {
+            let mut command = <Cli as clap::CommandFactory>::command().name(invoked_as.clone());
+            clap_complete::generate(shell, &mut command, invoked_as, &mut stdout);
+            Ok(0)
+        }
         Command::Dir => {
             let cwd = std::env::current_dir()?;
             let store =

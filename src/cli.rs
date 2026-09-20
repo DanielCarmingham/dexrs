@@ -25,6 +25,9 @@ pub enum Command {
         #[arg(short, long)]
         blocked_by: Option<String>,
     },
+    Completion {
+        shell: clap_complete::Shell,
+    },
     Archive {
         id: Option<String>,
         #[arg(long, conflicts_with_all = ["id", "older_than"])]

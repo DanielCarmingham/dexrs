@@ -42,8 +42,9 @@ share a `.dex/tasks.jsonl` file.
   and `--dry-run`; archived tasks go to `archive.jsonl` in the original's
   format and are visible via `list --archived` and `show`
 
-Not implemented: `config`, `mcp`, `sync`, `import`, `export`, and
-`completion`.
+- `completion <bash|zsh|fish|...>`, named after the invoked binary
+
+Not implemented: `config`, `mcp`, `sync`, `import`, and `export`.
 
 ## Testing Against the Original
 

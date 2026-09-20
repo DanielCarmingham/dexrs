@@ -1460,3 +1460,26 @@ fn list_issue_finds_task_by_github_issue_and_shows_indicator() {
     assert_eq!(list(&store, &["--issue", "7"]), "No tasks found.\n");
     assert!(list(&store, &[]).contains(&format!("[ ] {other} [p2]: Other")));
 }
+
+#[test]
+fn completion_generates_script_named_after_invoked_binary() {
+    for (binary, shell, marker) in [
+        ("dexrs", "zsh", "#compdef dexrs"),
+        ("dex", "zsh", "#compdef dex"),
+        ("dex", "bash", "complete -F _dex"),
+        ("dex", "fish", "complete -c dex"),
+    ] {
+        assert_cmd::Command::cargo_bin(binary)
+            .unwrap()
+            .args(["completion", shell])
+            .assert()
+            .success()
+            .stdout(predicates::str::contains(marker));
+    }
+
+    assert_cmd::Command::cargo_bin("dexrs")
+        .unwrap()
+        .args(["completion", "powershell7"])
+        .assert()
+        .failure();
+}

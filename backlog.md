@@ -18,7 +18,6 @@ No active implementation task.
 - [ ] GitHub sync
 - [ ] Shortcut sync
 - [ ] Import/export commands
-- [ ] Shell completions
 - [ ] `dex config`
 
 ## Done
@@ -36,6 +35,7 @@ No active implementation task.
 - [x] Implement `plan <file>`
 - [x] Implement `archive`, `list --archived`, and archived `show`
 - [x] Add `list --issue` and `list --commit` lookups with the `[GH-n]` tag
+- [x] Add `completion <shell>`
 
 - [x] Write the dexrs MVP design spec
 - [x] Write the dexrs MVP implementation plan
