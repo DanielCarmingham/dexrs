@@ -110,11 +110,27 @@ fn parse_json_array(value: &str) -> Vec<String> {
     serde_json::from_str::<Vec<String>>(value).unwrap_or_default()
 }
 
+/// Like the original, checks against origin/HEAD, but a repository cloned
+/// while empty never gets that ref, so fall back to the branch's upstream.
 pub fn is_commit_on_remote(cwd: &Path, sha: &str) -> bool {
-    Command::new("git")
-        .args(["merge-base", "--is-ancestor", sha, "origin/HEAD"])
-        .current_dir(cwd)
-        .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
+    let is_ancestor = |target: &str| {
+        Command::new("git")
+            .args(["merge-base", "--is-ancestor", sha, target])
+            .current_dir(cwd)
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    };
+    let ref_exists = |name: &str| {
+        Command::new("git")
+            .args(["rev-parse", "--verify", "--quiet", name])
+            .current_dir(cwd)
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    };
+    if ref_exists("origin/HEAD") {
+        return is_ancestor("origin/HEAD");
+    }
+    ref_exists("@{upstream}") && is_ancestor("@{upstream}")
 }

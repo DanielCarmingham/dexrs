@@ -114,8 +114,13 @@ pub fn apply_result(
         if !result.metadata.as_object().is_some_and(|m| m.is_empty()) {
             metadata.insert(service_id.to_string(), result.metadata.clone());
         }
+        // Recording where a task was synced is bookkeeping, not a change to
+        // the task, so keep updated_at unless the remote moved it. Otherwise
+        // every sync bumps the timestamp embedded in the issue body and the
+        // next sync sees a difference again.
         let mut input = UpdateInput {
             id: result.task_id.clone(),
+            updated_at: task.updated_at.clone(),
             ..UpdateInput::default()
         };
         if let Some(updates) = result

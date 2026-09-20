@@ -228,3 +228,60 @@ fn sync_state_file_and_duration_parsing() {
     assert_eq!(parse_duration_ms("1w"), None);
     assert_eq!(parse_duration_ms("abc"), None);
 }
+
+#[test]
+fn commit_on_remote_falls_back_to_upstream_when_origin_head_is_unset() {
+    let temp = tempfile::tempdir().unwrap();
+    let bare = temp.path().join("origin.git");
+    let work = temp.path().join("work");
+    let git = |dir: &std::path::Path, args: &[&str]| {
+        let output = std::process::Command::new("git")
+            .current_dir(dir)
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap().trim().to_string()
+    };
+    std::fs::create_dir_all(&bare).unwrap();
+    git(&bare, &["init", "-q", "--bare", "-b", "main", "."]);
+    std::fs::create_dir_all(&work).unwrap();
+    git(&work, &["init", "-q", "-b", "main", "."]);
+    git(&work, &["remote", "add", "origin", bare.to_str().unwrap()]);
+    git(&work, &["commit", "-q", "--allow-empty", "-m", "pushed"]);
+    git(&work, &["push", "-q", "-u", "origin", "main"]);
+    let pushed = git(&work, &["rev-parse", "HEAD"]);
+    let has_origin_head = std::process::Command::new("git")
+        .current_dir(&work)
+        .args(["symbolic-ref", "refs/remotes/origin/HEAD"])
+        .output()
+        .unwrap()
+        .status
+        .success();
+    assert!(
+        !has_origin_head,
+        "fresh remote has no origin/HEAD, which is the case under test"
+    );
+
+    assert!(dexrs::sync::is_commit_on_remote(&work, &pushed));
+
+    git(
+        &work,
+        &["commit", "-q", "--allow-empty", "-m", "local only"],
+    );
+    let local = git(&work, &["rev-parse", "HEAD"]);
+    assert!(!dexrs::sync::is_commit_on_remote(&work, &local));
+    assert!(!dexrs::sync::is_commit_on_remote(&work, "0000000"));
+}

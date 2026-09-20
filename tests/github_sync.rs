@@ -343,3 +343,26 @@ fn close_remote_patches_issue_closed_and_missing_token_is_reported() {
         "{error}"
     );
 }
+
+#[test]
+fn applying_sync_metadata_keeps_updated_at_so_repeat_syncs_are_unchanged() {
+    let mut task = task("root0001", "Root", None);
+    task.description = "context".into();
+    let mut tasks = vec![task.clone()];
+    let result = dexrs::sync::github::service::SyncResult::new_public(
+        "root0001",
+        serde_json::json!({"issueNumber": 5, "issueUrl": "u", "repo": "acme/widgets", "state": "open"}),
+        true,
+    );
+
+    dexrs::sync::registry::apply_result(&mut tasks, "github", &result).unwrap();
+
+    assert_eq!(
+        tasks[0].metadata.as_ref().unwrap()["github"]["issueNumber"],
+        5
+    );
+    assert_eq!(
+        tasks[0].updated_at, task.updated_at,
+        "saving sync metadata is not a task change"
+    );
+}
