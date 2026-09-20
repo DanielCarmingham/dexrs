@@ -28,7 +28,8 @@ share a `.dex/tasks.jsonl` file.
 - `status` (also the default when no command is given)
 - `create` / `add` `"name"` or `-n`, `-d`, `-p`, `--parent`, `--blocked-by`
 - `list` / `ls` `[id|search]`, `--all`, `--completed`, `--in-progress`,
-  `--blocked`, `--ready`, `--flat`, `--json`
+  `--blocked`, `--ready`, `--issue <n>`, `--commit <sha>`, `--archived`,
+  `--flat`, `--json`
 - `show <id>...`, `--full`, `--expand`, `--json`
 - `start <id>`, `--force`
 - `complete` / `done` `<id> --result "..."`, `--commit <sha>`, `--no-commit`,
@@ -41,8 +42,8 @@ share a `.dex/tasks.jsonl` file.
   and `--dry-run`; archived tasks go to `archive.jsonl` in the original's
   format and are visible via `list --archived` and `show`
 
-Not implemented: `config`, `mcp`, `sync`, `import`, `export`, `completion`,
-and the `--issue` / `--commit` lookups on `list`.
+Not implemented: `config`, `mcp`, `sync`, `import`, `export`, and
+`completion`.
 
 ## Testing Against the Original
 

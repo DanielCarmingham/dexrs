@@ -1403,3 +1403,60 @@ fn list_marks_completed_tasks_with_relative_age() {
         format!("[x] {done}: Done (0m ago)\n")
     );
 }
+
+fn write_metadata(store: &std::path::Path, id: &str, metadata: serde_json::Value) {
+    let mut tasks = read_tasks(store);
+    tasks
+        .iter_mut()
+        .find(|task| task.id == id)
+        .unwrap()
+        .metadata = Some(metadata);
+    std::fs::write(
+        store.join("tasks.jsonl"),
+        dexrs::task::serialize_tasks_jsonl(&tasks).unwrap(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn list_commit_finds_task_by_sha_prefix_including_completed() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let sha = git_repo_with_commit(temp.path());
+    let linked = create(&store, &["Linked"]);
+    let other = create(&store, &["Other"]);
+    dexrs(&store)
+        .current_dir(temp.path())
+        .args(["complete", &linked, "-r", "done", "--commit", &sha])
+        .assert()
+        .success();
+
+    let output = list(&store, &["--commit", &sha[..6].to_uppercase()]);
+
+    assert!(
+        output.contains(&format!("[x] {linked}: Linked (")),
+        "{output}"
+    );
+    assert!(!output.contains(&other), "{output}");
+    assert_eq!(list(&store, &["--commit", "ffffff"]), "No tasks found.\n");
+}
+
+#[test]
+fn list_issue_finds_task_by_github_issue_and_shows_indicator() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let linked = create(&store, &["Linked"]);
+    let other = create(&store, &["Other", "-p", "2"]);
+    write_metadata(
+        &store,
+        &linked,
+        serde_json::json!({"github": {"issueNumber": 42, "issueUrl": "https://example.invalid/42"}}),
+    );
+
+    assert_eq!(
+        list(&store, &["--issue", "42"]),
+        format!("[ ] {linked} [GH-42]: Linked\n")
+    );
+    assert_eq!(list(&store, &["--issue", "7"]), "No tasks found.\n");
+    assert!(list(&store, &[]).contains(&format!("[ ] {other} [p2]: Other")));
+}

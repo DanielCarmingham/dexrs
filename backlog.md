@@ -35,6 +35,7 @@ No active implementation task.
 - [x] Match the original `status` dashboard and `--json` shape
 - [x] Implement `plan <file>`
 - [x] Implement `archive`, `list --archived`, and archived `show`
+- [x] Add `list --issue` and `list --commit` lookups with the `[GH-n]` tag
 
 - [x] Write the dexrs MVP design spec
 - [x] Write the dexrs MVP implementation plan

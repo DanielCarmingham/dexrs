@@ -311,6 +311,8 @@ where
             blocked,
             ready,
             archived,
+            issue,
+            commit,
             flat,
             query,
             json,
@@ -344,6 +346,8 @@ where
                 blocked,
                 ready,
                 query: filter.or(query),
+                issue,
+                commit,
             };
             let selected = listing::select(&tasks, &filter);
             if json {

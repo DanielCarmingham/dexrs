@@ -10,6 +10,8 @@ pub struct ListFilter {
     pub blocked: bool,
     pub ready: bool,
     pub query: Option<String>,
+    pub issue: Option<i64>,
+    pub commit: Option<String>,
 }
 
 pub fn select<'a>(tasks: &'a [Task], filter: &ListFilter) -> Vec<&'a Task> {
@@ -24,14 +26,29 @@ pub fn select<'a>(tasks: &'a [Task], filter: &ListFilter) -> Vec<&'a Task> {
         .filter(|_| subtree.is_none())
         .map(str::to_lowercase);
 
+    let metadata_lookup = filter.issue.is_some() || filter.commit.is_some();
+    let commit_prefix = filter.commit.as_deref().map(str::to_lowercase);
+
     let mut selected: Vec<&Task> = tasks
         .iter()
         .filter(|task| {
-            if filter.completed {
+            if metadata_lookup {
+                true
+            } else if filter.completed {
                 task.completed
             } else {
                 filter.all || !task.completed
             }
+        })
+        .filter(|task| {
+            filter
+                .issue
+                .is_none_or(|issue| github_issue(task) == Some(issue))
+        })
+        .filter(|task| {
+            commit_prefix.as_deref().is_none_or(|prefix| {
+                commit_sha(task).is_some_and(|sha| sha.to_lowercase().starts_with(prefix))
+            })
         })
         .filter(|task| !filter.in_progress || is_in_progress(task))
         .filter(|task| !filter.blocked || is_blocked(tasks, task))
@@ -107,8 +124,19 @@ pub fn task_line(tasks: &[Task], task: &Task) -> String {
         [only] => line.push_str(&format!(" [B: {only}]")),
         many => line.push_str(&format!(" [B: {}]", many.len())),
     }
+    if let Some(issue) = github_issue(task) {
+        line.push_str(&format!(" [GH-{issue}]"));
+    }
     line.push_str(&format!(": {}", task.name));
     line
+}
+
+pub fn github_issue(task: &Task) -> Option<i64> {
+    task.metadata.as_ref()?["github"]["issueNumber"].as_i64()
+}
+
+pub fn commit_sha(task: &Task) -> Option<&str> {
+    task.metadata.as_ref()?["commit"]["sha"].as_str()
 }
 
 pub fn listed_line(tasks: &[Task], task: &Task) -> String {

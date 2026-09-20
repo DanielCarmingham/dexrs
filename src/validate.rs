@@ -36,7 +36,7 @@ pub fn validate_completion(tasks: &[Task], id: &str, force: bool) -> anyhow::Res
     Ok(())
 }
 
-fn task_map<'a>(tasks: &'a [Task]) -> anyhow::Result<HashMap<&'a str, &'a Task>> {
+fn task_map(tasks: &[Task]) -> anyhow::Result<HashMap<&str, &Task>> {
     let mut by_id = HashMap::new();
     for task in tasks {
         if by_id.insert(task.id.as_str(), task).is_some() {

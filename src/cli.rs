@@ -103,6 +103,10 @@ pub enum Command {
         ready: bool,
         #[arg(long)]
         archived: bool,
+        #[arg(long)]
+        issue: Option<i64>,
+        #[arg(long)]
+        commit: Option<String>,
         #[arg(short, long)]
         flat: bool,
         #[arg(short, long, conflicts_with = "filter")]
