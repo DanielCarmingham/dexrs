@@ -2107,3 +2107,28 @@ fn complete_rejects_commit_together_with_no_commit() {
         .assert()
         .failure();
 }
+
+#[test]
+fn json_output_is_pretty_printed_in_record_order() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let id = create(&store, &["Json"]);
+
+    let listed = list(&store, &["--json"]);
+    assert!(
+        listed.starts_with(&format!(
+            "[\n  {{\n    \"id\": \"{id}\",\n    \"parent_id\": null,\n    \"name\": \"Json\","
+        )),
+        "{listed}"
+    );
+
+    let shown = show_text(&store, &[&id, "--json"]);
+    assert!(
+        shown.starts_with(&format!("{{\n  \"id\": \"{id}\",")),
+        "{shown}"
+    );
+    assert!(shown.contains("\n  \"blockedBy\": [],\n  \"blocks\": [],\n  \"children\": [],\n  \"ancestors\": [],\n  \"depth\": 0,\n  \"subtasks\": {\n    \"pending\": 0,\n    \"completed\": 0,\n    \"children\": []\n  },\n  \"grandchildren\": null,\n  \"isBlocked\": false\n}\n"), "{shown}");
+
+    let status = status(&store, &["--json"]);
+    assert!(status.starts_with("{\n  \"stats\": {\n    \"total\": 1,\n    \"pending\": 1,\n    \"completed\": 0,\n    \"blocked\": 0,\n    \"ready\": 1,\n    \"inProgress\": 0\n  },\n  \"inProgressTasks\": [],\n  \"readyTasks\": [\n"), "{status}");
+}

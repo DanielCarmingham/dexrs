@@ -502,7 +502,7 @@ where
                 writeln!(
                     stdout,
                     "{}",
-                    serde_json::to_string(&status::to_json(&dashboard))?
+                    serde_json::to_string_pretty(&status::to_json(&dashboard))?
                 )?;
             } else {
                 write!(stdout, "{}", status::render(&tasks, &dashboard))?;
@@ -528,7 +528,7 @@ where
                 let mut records = store::read_archive(&store)?;
                 records.reverse();
                 if json {
-                    writeln!(stdout, "{}", serde_json::to_string(&records)?)?;
+                    writeln!(stdout, "{}", serde_json::to_string_pretty(&records)?)?;
                 } else if records.is_empty() {
                     writeln!(stdout, "No archived tasks found.")?;
                 } else {
@@ -557,7 +557,7 @@ where
             };
             let selected = listing::select(&tasks, &filter);
             if json {
-                writeln!(stdout, "{}", serde_json::to_string(&selected)?)?;
+                writeln!(stdout, "{}", serde_json::to_string_pretty(&selected)?)?;
             } else if selected.is_empty() {
                 writeln!(stdout, "No tasks found.")?;
             } else if flat {
@@ -599,8 +599,8 @@ where
                     })
                     .collect();
                 match values.as_slice() {
-                    [single] => writeln!(stdout, "{single}")?,
-                    many => writeln!(stdout, "{}", serde_json::Value::Array(many.to_vec()))?,
+                    [single] => writeln!(stdout, "{}", serde_json::to_string_pretty(single)?)?,
+                    many => writeln!(stdout, "{}", serde_json::to_string_pretty(many)?)?,
                 }
             } else {
                 for (index, shown) in selected.iter().enumerate() {
