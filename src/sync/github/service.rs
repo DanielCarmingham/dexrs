@@ -57,6 +57,10 @@ pub struct SyncResult {
 }
 
 impl SyncResult {
+    pub fn new_public(task_id: &str, metadata: Value, created: bool) -> Self {
+        Self::new(task_id, metadata, created)
+    }
+
     fn new(task_id: &str, metadata: Value, created: bool) -> Self {
         Self {
             task_id: task_id.to_string(),

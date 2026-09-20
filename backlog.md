@@ -7,11 +7,10 @@ incomplete.
 
 ## Active
 
-- [ ] Shortcut sync service: stories, subtasks, blockers, workflow states
+- [ ] `sync`, `import`, `export` commands and auto-sync on mutations
 
 ## Backlog
 
-- [ ] `sync`, `import`, `export` commands and auto-sync on mutations
 - [ ] `mcp` stdio server with create_task, update_task, list_tasks
 - [ ] `doctor`, `help`, and `version` subcommands
 
@@ -26,6 +25,8 @@ Nothing. Full parity with dex v0.16 is the goal.
       limit, auto-archive on write
 - [x] GitHub sync service with create/update, labels, skip-unchanged,
       pull-from-remote, and not-closing reasons, tested against a mock API
+- [x] Shortcut sync service with stories, subtasks, blocker links, workflow
+      states, and the label cache, tested against a mock API
 
 - [x] Write dex-compatible task records (`description` string, numeric
       `priority` defaulting to 1), verified against the real dex binary
