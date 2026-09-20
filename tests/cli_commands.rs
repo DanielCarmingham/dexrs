@@ -295,7 +295,9 @@ fn create(store: &std::path::Path, args: &[&str]) -> String {
         .clone();
     String::from_utf8(output)
         .unwrap()
-        .trim()
+        .lines()
+        .next()
+        .unwrap()
         .rsplit(' ')
         .next()
         .unwrap()
@@ -1934,4 +1936,174 @@ fn list_and_show_trees_truncate_long_names() {
         shown.contains(&format!("{parent}: {}...\n", "n".repeat(47))),
         "{shown}"
     );
+}
+
+fn stdout_of(assert: assert_cmd::assert::Assert) -> String {
+    String::from_utf8(assert.get_output().stdout.clone()).unwrap()
+}
+
+#[test]
+fn mutations_print_original_wording_and_task_card() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+
+    let created = stdout_of(
+        dexrs(&store)
+            .args(["create", "Card", "-d", "card details"])
+            .assert()
+            .success(),
+    );
+    let id = created
+        .lines()
+        .next()
+        .unwrap()
+        .rsplit(' ')
+        .next()
+        .unwrap()
+        .to_string();
+    assert!(
+        created.starts_with(&format!(
+            "Created task {id}\n[ ] {id}: Card\n\nDescription:\n  card details\n\nCreated:"
+        )),
+        "{created}"
+    );
+
+    let started = stdout_of(dexrs(&store).args(["start", &id]).assert().success());
+    assert!(
+        started.starts_with(&format!("Started task {id}\n[>] {id}: Card\n")),
+        "{started}"
+    );
+    assert!(started.contains("\nStarted:   "), "{started}");
+
+    let edited = stdout_of(
+        dexrs(&store)
+            .args(["edit", &id, "-n", "Renamed", "-p", "2"])
+            .assert()
+            .success(),
+    );
+    assert_eq!(
+        edited,
+        format!("Updated task {id}\n[>] {id} [p2]: Renamed\n")
+    );
+
+    let completed = stdout_of(
+        dexrs(&store)
+            .args(["complete", &id, "-r", "all good"])
+            .assert()
+            .success(),
+    );
+    assert!(completed.starts_with(&format!("Completed task {id}\n[x] {id} [p2]: Renamed\n\nDescription:\n  card details\n\nResult:\n  all good\n")), "{completed}");
+    assert!(completed.contains("\nCompleted: "), "{completed}");
+
+    let deleted = stdout_of(dexrs(&store).args(["delete", &id]).assert().success());
+    assert_eq!(deleted, format!("Deleted task {id}\n"));
+}
+
+#[test]
+fn completing_last_subtask_hints_at_parent() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let parent = create(&store, &["Parent"]);
+    let first = create(&store, &["First", "--parent", &parent]);
+    let second = create(&store, &["Second", "--parent", &parent]);
+
+    let output = stdout_of(
+        dexrs(&store)
+            .args(["complete", &first, "-r", "x"])
+            .assert()
+            .success(),
+    );
+    assert!(!output.contains("Hint:"), "{output}");
+
+    let output = stdout_of(
+        dexrs(&store)
+            .args(["complete", &second, "-r", "x"])
+            .assert()
+            .success(),
+    );
+    assert!(output.ends_with(&format!(
+        "\nHint: All subtasks of Parent are now complete.\n  • Complete parent: dex complete {parent} --result \"...\"\n"
+    )), "{output}");
+}
+
+#[test]
+fn completing_blocked_task_warns_but_proceeds() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let blocker = create(&store, &["Blocker"]);
+    let blocked = create(&store, &["Blocked", "--blocked-by", &blocker]);
+
+    let output = stdout_of(
+        dexrs(&store)
+            .args(["complete", &blocked, "-r", "anyway"])
+            .assert()
+            .success(),
+    );
+    assert!(output.starts_with(&format!(
+        "Warning: This task is blocked by 1 incomplete task(s):\n  • {blocker}: Blocker\n\nCompleted task {blocked}\n"
+    )), "{output}");
+    assert!(task(&store, &blocked).completed);
+}
+
+#[test]
+fn complete_requires_commit_decision_for_linked_leaf_tasks() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let linked = create(&store, &["Linked"]);
+    let linked_parent = create(&store, &["Linked parent"]);
+    let child = create(&store, &["Child", "--parent", &linked_parent]);
+    let story = create(&store, &["Story"]);
+    write_metadata(
+        &store,
+        &linked,
+        serde_json::json!({"github": {"issueNumber": 7}}),
+    );
+    write_metadata(
+        &store,
+        &linked_parent,
+        serde_json::json!({"github": {"issueNumber": 8}}),
+    );
+    write_metadata(
+        &store,
+        &story,
+        serde_json::json!({"shortcut": {"storyId": 99}}),
+    );
+
+    dexrs(&store)
+        .args(["complete", &linked, "-r", "done"])
+        .assert()
+        .failure()
+        .stderr(
+            predicates::str::contains("linked to GitHub issue #7")
+                .and(predicates::str::contains("--no-commit")),
+        );
+    assert!(!task(&store, &linked).completed);
+
+    dexrs(&store)
+        .args(["complete", &story, "-r", "done"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("linked to Shortcut story"));
+
+    dexrs(&store)
+        .args(["complete", &linked, "-r", "done", "--no-commit"])
+        .assert()
+        .success();
+    complete(&store, &child);
+    dexrs(&store)
+        .args(["complete", &linked_parent, "-r", "done"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn complete_rejects_commit_together_with_no_commit() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let id = create(&store, &["Both"]);
+
+    dexrs(&store)
+        .args(["complete", &id, "-r", "x", "--commit", "abc", "--no-commit"])
+        .assert()
+        .failure();
 }

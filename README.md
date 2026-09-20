@@ -20,11 +20,14 @@ uninstall any existing npm/pnpm dex installation.
 
 ## Implemented Commands
 
-The store format and the flags below match dex v0.16, so the two tools can
-share a `.dex/tasks.jsonl` file.
+The store format, config files, and the flags below match dex v0.16, so the
+two tools can share a `.dex/tasks.jsonl` file and a `dex.toml`.
 
-- `init`
-- `dir`
+Global options: `--config <path>`, `--storage-path <path>`, `--version`.
+
+- `init`, `-y`, `--config-dir` (writes the default `~/.config/dex/dex.toml`)
+- `dir`, `--global`
+- `config <key>[=<value>]`, `--unset`, `--list`, `--global`, `--local`
 - `status` (also the default when no command is given)
 - `create` / `add` `"name"` or `-n`, `-d`, `-p`, `--parent`, `--blocked-by`
 - `list` / `ls` `[id|search]`, `--all`, `--completed`, `--in-progress`,
@@ -44,7 +47,15 @@ share a `.dex/tasks.jsonl` file.
 
 - `completion <bash|zsh|fish|...>`, named after the invoked binary
 
-Not implemented: `config`, `mcp`, `sync`, `import`, and `export`.
+Not implemented: `mcp`, `sync`, `import`, and `export`.
+
+## Store Resolution
+
+Same precedence as original dex: `--storage-path`, then `storage.file.path`
+from config, then `DEX_STORAGE_PATH`, then either the centralized project
+directory under the dex home (`storage.file.mode = "centralized"`) or
+`<git-root>/.dex`, falling back to `<dex home>/local` outside a repository.
+The dex home is `DEX_HOME`, else `$XDG_CONFIG_HOME/dex`, else `~/.config/dex`.
 
 ## Testing Against the Original
 

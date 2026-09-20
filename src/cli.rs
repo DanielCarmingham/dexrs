@@ -81,7 +81,7 @@ pub enum Command {
         result: Option<String>,
         #[arg(short, long)]
         commit: Option<String>,
-        #[arg(long)]
+        #[arg(long, conflicts_with = "commit")]
         no_commit: bool,
         #[arg(short, long)]
         force: bool,

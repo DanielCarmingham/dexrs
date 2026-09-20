@@ -197,10 +197,9 @@ where
                 anyhow::bail!("task name is required\nUsage: dexrs create \"name\" [options]");
             };
             let store = resolved_store()?;
-            let task = store::transact(&store, |tasks| {
+            let (id, tasks) = store::transact(&store, |tasks| {
                 let id = generate_id(|candidate| tasks.iter().any(|task| task.id == candidate));
-                let task = Task::new(id.clone(), name, description, priority);
-                tasks.push(task.clone());
+                tasks.push(Task::new(id.clone(), name, description, priority));
                 relations::set_parent(tasks, &id, parent.as_deref())?;
                 for blocker in blocked_by
                     .iter()
@@ -208,9 +207,10 @@ where
                 {
                     relations::add_blocker(tasks, &id, blocker)?;
                 }
-                Ok(task)
+                Ok((id, tasks.clone()))
             })?;
-            writeln!(stdout, "created {}", task.id)?;
+            writeln!(stdout, "Created task {id}")?;
+            write!(stdout, "{}", card(&tasks, &id))?;
             Ok(0)
         }
         Command::Archive {
@@ -301,7 +301,7 @@ where
         }
         Command::Start { id, force } => {
             let store = resolved_store()?;
-            store::transact(&store, |tasks| {
+            let tasks = store::transact(&store, |tasks| {
                 let now = timestamp();
                 let task = find_task_mut(tasks, &id)?;
                 if listing::is_in_progress(task) && !force {
@@ -313,16 +313,17 @@ where
                 task.started_at = Some(now.clone());
                 task.updated_at = Some(now);
                 task.completed = false;
-                Ok(())
+                Ok(tasks.clone())
             })?;
-            writeln!(stdout, "started {id}")?;
+            writeln!(stdout, "Started task {id}")?;
+            write!(stdout, "{}", card(&tasks, &id))?;
             Ok(0)
         }
         Command::Complete {
             id,
             result,
             commit,
-            no_commit: _,
+            no_commit,
             force,
         } => {
             let Some(result) = result else {
@@ -334,8 +335,28 @@ where
                 .map(|reference| git::commit_metadata(&std::env::current_dir()?, &reference))
                 .transpose()?;
             let store = resolved_store()?;
-            store::transact(&store, |tasks| {
+            let has_commit_decision = commit.is_some() || no_commit;
+            let (tasks, open_blockers) = store::transact(&store, |tasks| {
                 validate_completion(tasks, &id, force)?;
+                let existing = listing::find(tasks, &id)
+                    .ok_or_else(|| anyhow::anyhow!("task {id} not found"))?;
+                if existing.children.is_empty()
+                    && !has_commit_decision
+                    && let Some(link) = remote_link(existing)
+                {
+                    anyhow::bail!(
+                        "Task is linked to {link}.\n  \
+                         Use --commit <sha> to link a commit (closes issue when merged)\n  \
+                         Use --no-commit to complete without a commit (issue stays open)"
+                    );
+                }
+                let open_blockers: Vec<(String, String)> = existing
+                    .blocked_by
+                    .iter()
+                    .filter_map(|blocker| listing::find(tasks, blocker))
+                    .filter(|blocker| !blocker.completed)
+                    .map(|blocker| (blocker.id.clone(), blocker.name.clone()))
+                    .collect();
                 let now = timestamp();
                 let task = find_task_mut(tasks, &id)?;
                 task.completed = true;
@@ -346,9 +367,49 @@ where
                 task.started_at.get_or_insert_with(|| now.clone());
                 task.completed_at = Some(now.clone());
                 task.updated_at = Some(now);
-                Ok(())
+                Ok((tasks.clone(), open_blockers))
             })?;
-            writeln!(stdout, "completed {id}")?;
+            if !open_blockers.is_empty() {
+                writeln!(
+                    stdout,
+                    "Warning: This task is blocked by {} incomplete task(s):",
+                    open_blockers.len()
+                )?;
+                for (blocker_id, name) in &open_blockers {
+                    writeln!(stdout, "  • {blocker_id}: {name}")?;
+                }
+                writeln!(stdout)?;
+            }
+            writeln!(stdout, "Completed task {id}")?;
+            write!(stdout, "{}", card(&tasks, &id))?;
+            let parent = listing::find(&tasks, &id)
+                .and_then(|task| task.parent_id.as_deref())
+                .and_then(|parent_id| listing::find(&tasks, parent_id));
+            if let Some(parent) = parent {
+                let siblings_done = parent
+                    .children
+                    .iter()
+                    .all(|child| listing::find(&tasks, child).is_none_or(|child| child.completed));
+                if siblings_done && !parent.completed {
+                    writeln!(stdout)?;
+                    writeln!(
+                        stdout,
+                        "Hint: All subtasks of {} are now complete.",
+                        parent.name
+                    )?;
+                    writeln!(
+                        stdout,
+                        "  • Complete parent: dex complete {} --result \"...\"",
+                        parent.id
+                    )?;
+                    if remote_link(parent).is_some() {
+                        writeln!(
+                            stdout,
+                            "    (Parent task with subtasks doesn't require --commit/--no-commit)"
+                        )?;
+                    }
+                }
+            }
             Ok(0)
         }
         Command::Edit {
@@ -365,7 +426,7 @@ where
                 .map(|reference| git::commit_metadata(&std::env::current_dir()?, &reference))
                 .transpose()?;
             let store = resolved_store()?;
-            store::transact(&store, |tasks| {
+            let tasks = store::transact(&store, |tasks| {
                 if let Some(parent) = &parent {
                     relations::set_parent(tasks, &id, Some(parent))?;
                 }
@@ -395,9 +456,12 @@ where
                     set_metadata(task, "commit", commit);
                 }
                 task.updated_at = Some(timestamp());
-                Ok(())
+                Ok(tasks.clone())
             })?;
-            writeln!(stdout, "updated {id}")?;
+            writeln!(stdout, "Updated task {id}")?;
+            let task =
+                listing::find(&tasks, &id).ok_or_else(|| anyhow::anyhow!("task {id} not found"))?;
+            writeln!(stdout, "{}", listing::task_line(&tasks, task))?;
             Ok(0)
         }
         Command::Delete { id, force } => {
@@ -564,6 +628,26 @@ struct ArchiveOutcome {
     archived: usize,
     roots: usize,
     reduction_percent: usize,
+}
+
+fn card(tasks: &[Task], id: &str) -> String {
+    listing::find(tasks, id)
+        .map(|task| show::render(tasks, task, false, false))
+        .unwrap_or_default()
+}
+
+fn remote_link(task: &Task) -> Option<String> {
+    let metadata = task.metadata.as_ref()?;
+    if let Some(github) = metadata.get("github") {
+        let number = github
+            .get("issueNumber")
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "?".to_string());
+        return Some(format!("GitHub issue #{number}"));
+    }
+    metadata
+        .get("shortcut")
+        .map(|_| "Shortcut story".to_string())
 }
 
 fn plural(count: usize, noun: &str) -> String {

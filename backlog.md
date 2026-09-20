@@ -18,7 +18,6 @@ No active implementation task.
 - [ ] GitHub sync
 - [ ] Shortcut sync
 - [ ] Import/export commands
-- [ ] `dex config`
 
 ## Done
 
@@ -36,6 +35,11 @@ No active implementation task.
 - [x] Implement `archive`, `list --archived`, and archived `show`
 - [x] Add `list --issue` and `list --commit` lookups with the `[GH-n]` tag
 - [x] Add `completion <shell>`
+- [x] Honor dex config files, `--config`, `--storage-path`, centralized mode;
+      add `config`, `dir --global`, `--version`, and original `init` semantics
+- [x] Match original `show` layout and enriched `--json` shape
+- [x] Match mutation output wording and task cards, blocker warning, parent
+      hint, and the `--commit`/`--no-commit` requirement for linked leaf tasks
 
 - [x] Write the dexrs MVP design spec
 - [x] Write the dexrs MVP implementation plan
