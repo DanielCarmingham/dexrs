@@ -24,8 +24,19 @@ pub fn resolve_store_dir(cwd: &Path, resolution: &Resolution<'_>) -> anyhow::Res
         return Ok(path.to_path_buf());
     }
     let config = crate::config::load(cwd, resolution.cli_config_path)?;
-    if let Some(path) = config.storage_path {
-        return Ok(path);
+    resolve_with_config(cwd, resolution, &config)
+}
+
+pub fn resolve_with_config(
+    cwd: &Path,
+    resolution: &Resolution<'_>,
+    config: &crate::config::Config,
+) -> anyhow::Result<PathBuf> {
+    if let Some(path) = resolution.cli_storage_path {
+        return Ok(path.to_path_buf());
+    }
+    if let Some(path) = &config.storage_path {
+        return Ok(path.clone());
     }
     if let Some(path) = resolution.env_storage_path {
         return Ok(PathBuf::from(path));
@@ -41,7 +52,7 @@ pub fn resolve_store_dir(cwd: &Path, resolution: &Resolution<'_>) -> anyhow::Res
     Ok(crate::config::dex_home()?.join("local"))
 }
 
-fn project_key(cwd: &Path) -> anyhow::Result<String> {
+pub fn project_key(cwd: &Path) -> anyhow::Result<String> {
     let output = Command::new("git")
         .args(["config", "--get", "remote.origin.url"])
         .current_dir(cwd)

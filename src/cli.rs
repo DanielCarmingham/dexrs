@@ -1,7 +1,11 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
-#[command(name = "dexrs", version)]
+#[command(
+    name = "dexrs",
+    version = concat!("v", env!("CARGO_PKG_VERSION")),
+    disable_help_subcommand = true
+)]
 pub struct Cli {
     #[arg(long, global = true, value_name = "path")]
     pub config: Option<std::path::PathBuf>,
@@ -50,6 +54,12 @@ pub enum Command {
     },
     Completion {
         shell: clap_complete::Shell,
+    },
+    Help,
+    Version,
+    Doctor {
+        #[arg(long)]
+        fix: bool,
     },
     #[command(disable_help_flag = true)]
     Mcp {

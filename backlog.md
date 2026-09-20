@@ -7,7 +7,7 @@ incomplete.
 
 ## Active
 
-- [ ] `doctor`, `help`, and `version` subcommands
+No active implementation task.
 
 ## Backlog
 
@@ -28,6 +28,8 @@ Nothing. Full parity with dex v0.16 is the goal.
 - [x] `sync`, `import`, and `export` commands, auto-sync after mutations,
       and closing remote issues on delete
 - [x] `mcp` stdio server with create_task, update_task, and list_tasks
+- [x] `doctor` with `--fix`, `help`, `version`, and unknown-command
+      suggestions
 
 - [x] Write dex-compatible task records (`description` string, numeric
       `priority` defaulting to 1), verified against the real dex binary

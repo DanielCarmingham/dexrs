@@ -10,7 +10,9 @@ use std::collections::HashSet;
 use crate::archive;
 use crate::cli::{Cli, Command};
 use crate::config;
+use crate::doctor;
 use crate::git;
+use crate::help;
 use crate::listing::{self, ListFilter};
 use crate::mcp;
 use crate::relations;
@@ -36,7 +38,22 @@ where
         .and_then(std::path::Path::file_stem)
         .map(|stem| stem.to_string_lossy().into_owned())
         .unwrap_or_else(|| "dexrs".to_string());
-    let cli = Cli::parse_from(&args);
+    let cli = match Cli::try_parse_from(&args) {
+        Ok(cli) => cli,
+        Err(error) if error.kind() == clap::error::ErrorKind::InvalidSubcommand => {
+            let unknown = error
+                .get(clap::error::ContextKind::InvalidSubcommand)
+                .map(|value| value.to_string())
+                .unwrap_or_default();
+            let mut message = format!("Unknown command: {unknown}");
+            if let Some(suggestion) = help::suggestion(&unknown) {
+                message.push_str(&format!("\nDid you mean \"{suggestion}\"?"));
+            }
+            message.push_str(&format!("\nRun {invoked_as} help for usage information."));
+            anyhow::bail!("{message}");
+        }
+        Err(error) => error.exit(),
+    };
     let command = cli.command.unwrap_or(Command::Status { json: false });
     let env_storage_path = std::env::var_os("DEX_STORAGE_PATH");
     let resolution = store::Resolution {
@@ -67,6 +84,31 @@ where
     };
 
     match command {
+        Command::Help => {
+            write!(stdout, "{}", help::text(&invoked_as))?;
+            Ok(0)
+        }
+        Command::Version => {
+            writeln!(stdout, "{invoked_as} v{}", env!("CARGO_PKG_VERSION"))?;
+            Ok(0)
+        }
+        Command::Doctor { fix } => {
+            // A broken config must not stop the tool meant to report it.
+            let config = load_config().unwrap_or_default();
+            let cwd = std::env::current_dir()?;
+            let store = store::resolve_with_config(&cwd, &resolution, &config)?;
+            let options = store::WriteOptions {
+                auto_archive: Some(config.archive.clone()),
+            };
+            let ctx = doctor::Context {
+                store_dir: &store,
+                cwd: &cwd,
+                config: &config,
+                config_path: resolution.cli_config_path,
+                write_options: &options,
+            };
+            doctor::run(&ctx, fix, &mut stdout)
+        }
         Command::Mcp { help } => {
             if help {
                 write!(stdout, "{}", mcp::help_text(&invoked_as))?;

@@ -20,8 +20,9 @@ uninstall any existing npm/pnpm dex installation.
 
 ## Implemented Commands
 
-The store format, config files, and the flags below match dex v0.16, so the
-two tools can share a `.dex/tasks.jsonl` file and a `dex.toml`.
+Every command of dex v0.16 is implemented. The store format, archive format,
+config files, GitHub issue and Shortcut story formats, and the flags below
+match the original, so the two tools can share a store and a remote.
 
 Global options: `--config <path>`, `--storage-path <path>`, `--version`.
 
@@ -46,8 +47,24 @@ Global options: `--config <path>`, `--storage-path <path>`, `--version`.
   format and are visible via `list --archived` and `show`
 
 - `completion <bash|zsh|fish|...>`, named after the invoked binary
+- `sync [id]`, `--github`, `--shortcut`, `--dry-run`; pushes root tasks to
+  GitHub Issues and Shortcut Stories per `[sync.github]` / `[sync.shortcut]`
+- `import <#N|owner/repo#N|url|sc#N>`, `--all`, `--github`, `--shortcut`,
+  `--update`, `--dry-run`
+- `export <id>...`, `--dry-run` (GitHub, no metadata saved back)
+- `mcp` (stdio Model Context Protocol server with `create_task`,
+  `update_task`, and `list_tasks`)
+- `doctor`, `--fix`
+- `help`, `version`
 
-Not implemented: `mcp`, `sync`, `import`, and `export`.
+Mutations run the original auto-sync hook when a sync service is enabled
+(`sync.<service>.auto.on_change`, default true, or `auto.max_age`), and
+`archive.auto` archives old completed tasks on write.
+
+## Testing Without the Network
+
+`DEX_GITHUB_API_URL` and `DEX_SHORTCUT_API_URL` point the API clients at any
+base URL; the test suite uses them to run against a local mock server.
 
 ## Store Resolution
 

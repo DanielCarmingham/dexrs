@@ -2271,3 +2271,170 @@ fn auto_archive_runs_on_write_when_enabled() {
     assert_eq!(log.lines().count(), 2);
     assert!(log.contains("AUTO-ARCHIVED"), "{log}");
 }
+
+#[test]
+fn help_and_version_subcommands_and_unknown_command_suggestion() {
+    let temp = tempfile::tempdir().unwrap();
+
+    let help = stdout_of(bare(temp.path()).arg("help").assert().success());
+    assert!(
+        help.contains("Task tracking tool") && help.contains("USAGE:"),
+        "{help}"
+    );
+    assert!(
+        help.contains("  mcp                              Start MCP server (stdio)\n"),
+        "{help}"
+    );
+    assert!(
+        help.contains("  sync [id]                        Push tasks to GitHub/Shortcut\n"),
+        "{help}"
+    );
+    assert!(
+        !help.contains("____"),
+        "quiet output has no banner:\n{help}"
+    );
+
+    let version = stdout_of(bare(temp.path()).arg("version").assert().success());
+    assert_eq!(version, format!("dexrs v{}\n", env!("CARGO_PKG_VERSION")));
+
+    bare(temp.path()).arg("lisst").assert().failure().stderr(
+        predicates::str::contains("Unknown command: lisst")
+            .and(predicates::str::contains("Did you mean \"list\"?")),
+    );
+}
+
+#[test]
+fn doctor_reports_clean_store_and_fixes_dangling_references() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = temp.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git_repo(&repo);
+    let store = repo.join(".dex");
+    let run = || {
+        let mut cmd = bare(temp.path());
+        cmd.current_dir(&repo);
+        cmd
+    };
+    let parent_out = run().args(["create", "Parent"]).assert().success();
+    let parent = String::from_utf8(parent_out.get_output().stdout.clone())
+        .unwrap()
+        .lines()
+        .next()
+        .unwrap()
+        .rsplit(' ')
+        .next()
+        .unwrap()
+        .to_string();
+    let child_out = run()
+        .args(["create", "Child", "--parent", &parent])
+        .assert()
+        .success();
+    let child = String::from_utf8(child_out.get_output().stdout.clone())
+        .unwrap()
+        .lines()
+        .next()
+        .unwrap()
+        .rsplit(' ')
+        .next()
+        .unwrap()
+        .to_string();
+
+    let clean = stdout_of(run().arg("doctor").assert().success());
+    assert_eq!(
+        clean,
+        "\nChecking storage location...\n  ✓ Storage location correct\n\nChecking config...\n  ✓ Config valid\n\nChecking storage...\n  ✓ 2 task(s) validated\n\nNo issues found.\n"
+    );
+
+    let mut tasks = read_tasks(&store);
+    tasks
+        .iter_mut()
+        .find(|task| task.id == child)
+        .unwrap()
+        .blocked_by
+        .push("ghost123".into());
+    tasks
+        .iter_mut()
+        .find(|task| task.id == parent)
+        .unwrap()
+        .children
+        .clear();
+    std::fs::write(
+        store.join("tasks.jsonl"),
+        dexrs::task::serialize_tasks_jsonl(&tasks).unwrap(),
+    )
+    .unwrap();
+    std::fs::create_dir_all(temp.path().join("dex-home")).unwrap();
+    std::fs::write(
+        temp.path().join("dex-home/dex.toml"),
+        "this is not = toml [",
+    )
+    .unwrap();
+
+    let report = stdout_of(run().arg("doctor").assert().success());
+    assert!(
+        report.contains("  ✗ Global config invalid TOML:"),
+        "{report}"
+    );
+    assert!(
+        report.contains(&format!(
+            "  ⚠ Task {child}: blockedBy 'ghost123' does not exist (dangling reference)\n"
+        )),
+        "{report}"
+    );
+    assert!(
+        report.contains(&format!(
+            "  ⚠ Task {child}: parent_id '{parent}' but parent does not list it as a child\n"
+        )),
+        "{report}"
+    );
+    assert!(
+        report.contains(
+            "Found 1 error(s), 2 warning(s).\n\nRun dex doctor --fix to fix 2 issue(s).\n"
+        ),
+        "{report}"
+    );
+
+    let fixed = stdout_of(run().args(["doctor", "--fix"]).assert().success());
+    assert!(fixed.contains("Applying fixes...\n"), "{fixed}");
+    assert!(fixed.contains("\nFixed 2 issue(s).\n"), "{fixed}");
+    let repaired = read_tasks(&store);
+    let child_task = repaired.iter().find(|task| task.id == child).unwrap();
+    assert!(child_task.blocked_by.is_empty());
+    assert_eq!(
+        repaired
+            .iter()
+            .find(|task| task.id == parent)
+            .unwrap()
+            .children,
+        vec![child.clone()]
+    );
+}
+
+#[test]
+fn doctor_detects_tasks_left_in_the_other_storage_mode() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = temp.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git_repo(&repo);
+    let run = || {
+        let mut cmd = bare(temp.path());
+        cmd.current_dir(&repo);
+        cmd
+    };
+    run().args(["create", "In repo"]).assert().success();
+    run()
+        .args(["config", "storage.file.mode=centralized"])
+        .assert()
+        .success();
+
+    let report = stdout_of(run().arg("doctor").assert().success());
+    assert!(report.contains("  ⚠ Found 1 task(s) in previous in-repo (.dex/) location. These were not migrated when storage mode changed.\n"), "{report}");
+
+    let fixed = stdout_of(run().args(["doctor", "--fix"]).assert().success());
+    assert!(fixed.contains("Migrated 1 task(s) from"), "{fixed}");
+    assert!(!repo.join(".dex/tasks.jsonl").exists());
+    let central = stdout_of(run().arg("dir").assert().success());
+    let central = std::path::PathBuf::from(central.trim());
+    assert_eq!(read_tasks(&central).len(), 1);
+    assert!(stdout_of(run().arg("doctor").assert().success()).contains("No issues found."));
+}

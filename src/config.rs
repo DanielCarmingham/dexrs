@@ -141,6 +141,7 @@ pub fn project_config_path(cwd: &Path) -> anyhow::Result<Option<PathBuf>> {
     Ok(git_root(cwd)?.map(|root| root.join(".dex/config.toml")))
 }
 
+#[derive(Debug, Clone)]
 pub struct Config {
     pub engine: String,
     pub storage_path: Option<PathBuf>,
@@ -148,6 +149,19 @@ pub struct Config {
     pub github: IntegrationConfig,
     pub shortcut: IntegrationConfig,
     pub archive: ArchiveConfig,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            engine: "file".to_string(),
+            storage_path: None,
+            centralized: false,
+            github: IntegrationConfig::default(),
+            shortcut: IntegrationConfig::default(),
+            archive: ArchiveConfig::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
