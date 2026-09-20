@@ -1,16 +1,39 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
-#[command(name = "dexrs")]
+#[command(name = "dexrs", version)]
 pub struct Cli {
+    #[arg(long, global = true, value_name = "path")]
+    pub config: Option<std::path::PathBuf>,
+    #[arg(long, global = true, value_name = "path")]
+    pub storage_path: Option<std::path::PathBuf>,
     #[command(subcommand)]
     pub command: Option<Command>,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    Dir,
-    Init,
+    Dir {
+        #[arg(long)]
+        global: bool,
+    },
+    Init {
+        #[arg(short, long)]
+        yes: bool,
+        #[arg(long, value_name = "PATH")]
+        config_dir: Option<std::path::PathBuf>,
+    },
+    Config {
+        input: Option<String>,
+        #[arg(short, long, conflicts_with = "local")]
+        global: bool,
+        #[arg(short, long)]
+        local: bool,
+        #[arg(long)]
+        unset: bool,
+        #[arg(long)]
+        list: bool,
+    },
     #[command(alias = "add")]
     Create {
         name: Option<String>,

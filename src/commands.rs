@@ -9,6 +9,7 @@ use std::collections::HashSet;
 
 use crate::archive;
 use crate::cli::{Cli, Command};
+use crate::config;
 use crate::git;
 use crate::listing::{self, ListFilter};
 use crate::relations;
@@ -33,6 +34,13 @@ where
         .unwrap_or_else(|| "dexrs".to_string());
     let cli = Cli::parse_from(&args);
     let command = cli.command.unwrap_or(Command::Status { json: false });
+    let env_storage_path = std::env::var_os("DEX_STORAGE_PATH");
+    let resolution = store::Resolution {
+        cli_storage_path: cli.storage_path.as_deref(),
+        cli_config_path: cli.config.as_deref(),
+        env_storage_path: env_storage_path.as_deref(),
+    };
+    let resolved_store = || store::resolve_store_dir(&std::env::current_dir()?, &resolution);
 
     match command {
         Command::Completion { shell } => {
@@ -40,19 +48,141 @@ where
             clap_complete::generate(shell, &mut command, invoked_as, &mut stdout);
             Ok(0)
         }
-        Command::Dir => {
-            let cwd = std::env::current_dir()?;
-            let store =
-                store::resolve_store_dir(&cwd, std::env::var_os("DEX_STORAGE_PATH").as_deref())?;
-            writeln!(stdout, "{}", store.display())?;
+        Command::Dir { global } => {
+            let path = if global {
+                config::dex_home()?
+            } else {
+                resolved_store()?
+            };
+            writeln!(stdout, "{}", path.display())?;
             Ok(0)
         }
-        Command::Init => {
+        Command::Init { yes: _, config_dir } => {
+            let config_path = match config_dir {
+                Some(dir) => dir.join("dex.toml"),
+                None => config::global_config_path()?,
+            };
+            if config_path.exists() {
+                anyhow::bail!(
+                    "Config file already exists at {}\nEdit the file directly or delete it to reinitialize.",
+                    config_path.display()
+                );
+            }
+            if let Some(parent) = config_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&config_path, config::DEFAULT_CONFIG)?;
+            writeln!(stdout, "✓ Created config file at {}", config_path.display())?;
+            writeln!(stdout)?;
+            writeln!(
+                stdout,
+                "Shell completions: add `eval \"$({invoked_as} completion zsh)\"` (or bash/fish) to your shell config."
+            )?;
+            Ok(0)
+        }
+        Command::Config {
+            input,
+            global,
+            local,
+            unset,
+            list,
+        } => {
             let cwd = std::env::current_dir()?;
-            let store =
-                store::resolve_store_dir(&cwd, std::env::var_os("DEX_STORAGE_PATH").as_deref())?;
-            store::init_store(&store)?;
-            writeln!(stdout, "initialized {}", store.display())?;
+            let global_path = match &cli.config {
+                Some(path) => path.clone(),
+                None => config::global_config_path()?,
+            };
+            let project_path = config::project_config_path(&cwd)?;
+            let (target_path, label) = if local {
+                let Some(project_path) = project_path.clone() else {
+                    anyhow::bail!(
+                        "--local requires being in a git repository\nRun dex init to initialize a git repository or use --global"
+                    );
+                };
+                (project_path, "local")
+            } else {
+                let _ = global;
+                (global_path.clone(), "global")
+            };
+            let effective = |key: &str| -> anyhow::Result<Option<toml::Value>> {
+                let global_value = config::read_file(&global_path)?;
+                let local_value = match &project_path {
+                    Some(path) => config::read_file(path)?,
+                    None => toml::Value::Table(Default::default()),
+                };
+                Ok(config::lookup(&local_value, key)
+                    .map(|value| (value.clone(), "local"))
+                    .or_else(|| {
+                        config::lookup(&global_value, key).map(|value| (value.clone(), "global"))
+                    })
+                    .map(|(value, source)| {
+                        toml::Value::Table(toml::map::Map::from_iter([
+                            ("value".to_string(), value),
+                            (
+                                "source".to_string(),
+                                toml::Value::String(source.to_string()),
+                            ),
+                        ]))
+                    }))
+            };
+
+            if list {
+                writeln!(stdout, "Configuration:\n")?;
+                for spec in config::SCHEMA {
+                    if let Some(found) = effective(spec.key)? {
+                        writeln!(
+                            stdout,
+                            "{} = {} [{}]",
+                            spec.key,
+                            config::format_value(found.get("value")),
+                            found
+                                .get("source")
+                                .and_then(toml::Value::as_str)
+                                .unwrap_or_default()
+                        )?;
+                    }
+                }
+                return Ok(0);
+            }
+            let Some(input) = input else {
+                anyhow::bail!(
+                    "Missing config key\nUsage: dex config <key>[=<value>]\nRun dex config --help for available keys."
+                );
+            };
+            if unset {
+                config::spec(&input)?;
+                let mut document = config::read_file(&target_path)?;
+                if config::unset(&mut document, &input) {
+                    config::write_file(&target_path, &document)?;
+                    writeln!(stdout, "Unset {input} in {label} config")?;
+                } else {
+                    writeln!(stdout, "Key {input} was not set in {label} config")?;
+                }
+                return Ok(0);
+            }
+            match input.split_once('=') {
+                None => {
+                    config::spec(&input)?;
+                    let found = effective(&input)?;
+                    writeln!(
+                        stdout,
+                        "{}",
+                        config::format_value(found.as_ref().and_then(|found| found.get("value")))
+                    )?;
+                }
+                Some((key, raw)) => {
+                    let spec = config::spec(key)?;
+                    let value = config::parse_value(spec, raw)?;
+                    let mut document = config::read_file(&target_path)?;
+                    config::set(&mut document, key, value.clone());
+                    config::write_file(&target_path, &document)?;
+                    writeln!(
+                        stdout,
+                        "Set {key} = {} in {label} config",
+                        config::format_value(Some(&value))
+                    )?;
+                }
+            }
             Ok(0)
         }
         Command::Create {
@@ -423,11 +553,6 @@ where
             Ok(0)
         }
     }
-}
-
-fn resolved_store() -> anyhow::Result<std::path::PathBuf> {
-    let cwd = std::env::current_dir()?;
-    store::resolve_store_dir(&cwd, std::env::var_os("DEX_STORAGE_PATH").as_deref())
 }
 
 enum Shown<'a> {

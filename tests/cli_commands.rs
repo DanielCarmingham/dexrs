@@ -9,9 +9,7 @@ fn read_tasks(store: &std::path::Path) -> Vec<Task> {
 fn dexrs_dir_prints_store_path_from_env() {
     let temp = tempfile::tempdir().unwrap();
     let store = temp.path().join("store");
-    let output = assert_cmd::Command::cargo_bin("dexrs")
-        .unwrap()
-        .env("DEX_STORAGE_PATH", &store)
+    let output = dexrs(&store)
         .arg("dir")
         .assert()
         .success()
@@ -31,12 +29,7 @@ fn create_and_add_write_new_tasks() {
     let store = temp.path().join("store");
 
     for (command, name) in [("create", "First task"), ("add", "Second task")] {
-        assert_cmd::Command::cargo_bin("dexrs")
-            .unwrap()
-            .env("DEX_STORAGE_PATH", &store)
-            .args([command, name])
-            .assert()
-            .success();
+        dexrs(&store).args([command, name]).assert().success();
     }
 
     let tasks = read_tasks(&store);
@@ -51,20 +44,13 @@ fn start_marks_task_in_progress() {
     let temp = tempfile::tempdir().unwrap();
     let store = temp.path().join("store");
 
-    assert_cmd::Command::cargo_bin("dexrs")
-        .unwrap()
-        .env("DEX_STORAGE_PATH", &store)
+    dexrs(&store)
         .args(["create", "Start me"])
         .assert()
         .success();
     let id = read_tasks(&store)[0].id.clone();
 
-    assert_cmd::Command::cargo_bin("dexrs")
-        .unwrap()
-        .env("DEX_STORAGE_PATH", &store)
-        .args(["start", &id])
-        .assert()
-        .success();
+    dexrs(&store).args(["start", &id]).assert().success();
 
     let task = read_tasks(&store).pop().unwrap();
     assert_eq!(task.id, id);
@@ -81,21 +67,14 @@ fn complete_and_done_mark_task_complete_with_result() {
         ("Complete me", "complete", "finished"),
         ("Done me", "done", "also finished"),
     ] {
-        assert_cmd::Command::cargo_bin("dexrs")
-            .unwrap()
-            .env("DEX_STORAGE_PATH", &store)
-            .args(["create", name])
-            .assert()
-            .success();
+        dexrs(&store).args(["create", name]).assert().success();
         let id = read_tasks(&store)
             .into_iter()
             .find(|task| task.name == name)
             .unwrap()
             .id;
 
-        assert_cmd::Command::cargo_bin("dexrs")
-            .unwrap()
-            .env("DEX_STORAGE_PATH", &store)
+        dexrs(&store)
             .args([command, &id, "--result", result])
             .assert()
             .success();
@@ -121,17 +100,10 @@ fn edit_and_update_change_task_fields() {
     let temp = tempfile::tempdir().unwrap();
     let store = temp.path().join("store");
 
-    assert_cmd::Command::cargo_bin("dexrs")
-        .unwrap()
-        .env("DEX_STORAGE_PATH", &store)
-        .args(["create", "Old"])
-        .assert()
-        .success();
+    dexrs(&store).args(["create", "Old"]).assert().success();
     let id = read_tasks(&store)[0].id.clone();
 
-    assert_cmd::Command::cargo_bin("dexrs")
-        .unwrap()
-        .env("DEX_STORAGE_PATH", &store)
+    dexrs(&store)
         .args([
             "edit",
             &id,
@@ -145,9 +117,7 @@ fn edit_and_update_change_task_fields() {
         .assert()
         .success();
 
-    assert_cmd::Command::cargo_bin("dexrs")
-        .unwrap()
-        .env("DEX_STORAGE_PATH", &store)
+    dexrs(&store)
         .args(["update", &id, "--priority", "2"])
         .assert()
         .success();
@@ -168,24 +138,14 @@ fn delete_remove_and_rm_delete_tasks() {
         ("Remove me", "remove"),
         ("Rm me", "rm"),
     ] {
-        assert_cmd::Command::cargo_bin("dexrs")
-            .unwrap()
-            .env("DEX_STORAGE_PATH", &store)
-            .args(["create", name])
-            .assert()
-            .success();
+        dexrs(&store).args(["create", name]).assert().success();
         let id = read_tasks(&store)
             .into_iter()
             .find(|task| task.name == name)
             .unwrap()
             .id;
 
-        assert_cmd::Command::cargo_bin("dexrs")
-            .unwrap()
-            .env("DEX_STORAGE_PATH", &store)
-            .args([command, &id])
-            .assert()
-            .success();
+        dexrs(&store).args([command, &id]).assert().success();
     }
 
     assert!(read_tasks(&store).is_empty());
@@ -196,24 +156,15 @@ fn list_and_ls_print_status_icons() {
     let temp = tempfile::tempdir().unwrap();
     let store = temp.path().join("store");
 
-    assert_cmd::Command::cargo_bin("dexrs")
-        .unwrap()
-        .env("DEX_STORAGE_PATH", &store)
-        .args(["create", "List me"])
-        .assert()
-        .success();
+    dexrs(&store).args(["create", "List me"]).assert().success();
 
-    assert_cmd::Command::cargo_bin("dexrs")
-        .unwrap()
-        .env("DEX_STORAGE_PATH", &store)
+    dexrs(&store)
         .arg("list")
         .assert()
         .success()
         .stdout(predicates::str::contains("[ ]").and(predicates::str::contains("List me")));
 
-    assert_cmd::Command::cargo_bin("dexrs")
-        .unwrap()
-        .env("DEX_STORAGE_PATH", &store)
+    dexrs(&store)
         .arg("ls")
         .assert()
         .success()
@@ -225,17 +176,13 @@ fn show_prints_task_details_by_id() {
     let temp = tempfile::tempdir().unwrap();
     let store = temp.path().join("store");
 
-    assert_cmd::Command::cargo_bin("dexrs")
-        .unwrap()
-        .env("DEX_STORAGE_PATH", &store)
+    dexrs(&store)
         .args(["create", "Show me", "--description", "Details"])
         .assert()
         .success();
     let id = read_tasks(&store)[0].id.clone();
 
-    assert_cmd::Command::cargo_bin("dexrs")
-        .unwrap()
-        .env("DEX_STORAGE_PATH", &store)
+    dexrs(&store)
         .args(["show", &id])
         .assert()
         .success()
@@ -247,9 +194,7 @@ fn read_commands_support_json_output() {
     let temp = tempfile::tempdir().unwrap();
     let store = temp.path().join("store");
 
-    assert_cmd::Command::cargo_bin("dexrs")
-        .unwrap()
-        .env("DEX_STORAGE_PATH", &store)
+    dexrs(&store)
         .args(["create", "Json task"])
         .assert()
         .success();
@@ -260,9 +205,7 @@ fn read_commands_support_json_output() {
         vec!["list", "--json"],
         vec!["show", &id, "--json"],
     ] {
-        let output = assert_cmd::Command::cargo_bin("dexrs")
-            .unwrap()
-            .env("DEX_STORAGE_PATH", &store)
+        let output = dexrs(&store)
             .args(args)
             .assert()
             .success()
@@ -278,9 +221,7 @@ fn dex_binary_matches_dexrs_for_dir() {
     let temp = tempfile::tempdir().unwrap();
     let store = temp.path().join("store");
 
-    let dexrs_output = assert_cmd::Command::cargo_bin("dexrs")
-        .unwrap()
-        .env("DEX_STORAGE_PATH", &store)
+    let dexrs_output = dexrs(&store)
         .arg("dir")
         .assert()
         .success()
@@ -289,6 +230,7 @@ fn dex_binary_matches_dexrs_for_dir() {
         .clone();
     let dex_output = assert_cmd::Command::cargo_bin("dex")
         .unwrap()
+        .env("DEX_HOME", temp.path().join("dex-home"))
         .env("DEX_STORAGE_PATH", &store)
         .arg("dir")
         .assert()
@@ -301,35 +243,11 @@ fn dex_binary_matches_dexrs_for_dir() {
 }
 
 #[test]
-fn init_creates_store_directory_and_empty_task_file() {
-    let temp = tempfile::tempdir().unwrap();
-    let store = temp.path().join("store");
-
-    assert_cmd::Command::cargo_bin("dexrs")
-        .unwrap()
-        .env("DEX_STORAGE_PATH", &store)
-        .arg("init")
-        .assert()
-        .success();
-
-    assert!(store.is_dir());
-    assert_eq!(
-        std::fs::read_to_string(store.join("tasks.jsonl")).unwrap(),
-        ""
-    );
-}
-
-#[test]
 fn create_writes_record_the_original_dex_schema_accepts() {
     let temp = tempfile::tempdir().unwrap();
     let store = temp.path().join("store");
 
-    assert_cmd::Command::cargo_bin("dexrs")
-        .unwrap()
-        .env("DEX_STORAGE_PATH", &store)
-        .args(["create", "Bare"])
-        .assert()
-        .success();
+    dexrs(&store).args(["create", "Bare"]).assert().success();
 
     let raw = std::fs::read_to_string(store.join("tasks.jsonl")).unwrap();
     assert!(raw.contains(r#""description":"""#), "{raw}");
@@ -354,8 +272,15 @@ fn create_writes_record_the_original_dex_schema_accepts() {
 }
 
 fn dexrs(store: &std::path::Path) -> assert_cmd::Command {
-    let mut command = assert_cmd::Command::cargo_bin("dexrs").unwrap();
+    let mut command = bare(store);
     command.env("DEX_STORAGE_PATH", store);
+    command
+}
+
+fn bare(scratch: &std::path::Path) -> assert_cmd::Command {
+    let mut command = assert_cmd::Command::cargo_bin("dexrs").unwrap();
+    command.env("DEX_HOME", scratch.join("dex-home"));
+    command.env_remove("DEX_STORAGE_PATH");
     command
 }
 
@@ -1482,4 +1407,308 @@ fn completion_generates_script_named_after_invoked_binary() {
         .args(["completion", "powershell7"])
         .assert()
         .failure();
+}
+
+fn git_repo(dir: &std::path::Path) {
+    let output = std::process::Command::new("git")
+        .current_dir(dir)
+        .args(["init", "-q", "-b", "main", "."])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+}
+
+#[test]
+fn version_flag_prints_version() {
+    let temp = tempfile::tempdir().unwrap();
+    for flag in ["--version", "-V"] {
+        bare(temp.path())
+            .arg(flag)
+            .assert()
+            .success()
+            .stdout(predicates::str::contains(env!("CARGO_PKG_VERSION")));
+    }
+}
+
+#[test]
+fn dir_global_prints_dex_home_from_env_or_xdg_or_home() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+
+    bare(temp.path())
+        .args(["dir", "--global"])
+        .assert()
+        .success()
+        .stdout(format!("{}\n", temp.path().join("dex-home").display()));
+
+    assert_cmd::Command::cargo_bin("dexrs")
+        .unwrap()
+        .env_remove("DEX_HOME")
+        .env("XDG_CONFIG_HOME", temp.path().join("xdg"))
+        .env("HOME", &home)
+        .args(["dir", "--global"])
+        .assert()
+        .success()
+        .stdout(format!("{}\n", temp.path().join("xdg/dex").display()));
+
+    assert_cmd::Command::cargo_bin("dexrs")
+        .unwrap()
+        .env_remove("DEX_HOME")
+        .env_remove("XDG_CONFIG_HOME")
+        .env("HOME", &home)
+        .args(["dir", "--global"])
+        .assert()
+        .success()
+        .stdout(format!("{}\n", home.join(".config/dex").display()));
+}
+
+#[test]
+fn init_writes_default_global_config_once() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = temp.path().join("dex-home/dex.toml");
+
+    bare(temp.path())
+        .args(["init", "-y"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(format!(
+            "Created config file at {}",
+            config.display()
+        )));
+    let contents = std::fs::read_to_string(&config).unwrap();
+    assert!(
+        contents.contains("[storage]") && contents.contains("engine = \"file\""),
+        "{contents}"
+    );
+    assert!(!temp.path().join(".dex").exists());
+
+    bare(temp.path())
+        .arg("init")
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("already exists"));
+
+    let other = temp.path().join("elsewhere");
+    bare(temp.path())
+        .args(["init", "--config-dir", other.to_str().unwrap()])
+        .assert()
+        .success();
+    assert!(other.join("dex.toml").is_file());
+}
+
+#[test]
+fn storage_path_resolution_follows_original_precedence() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = temp.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git_repo(&repo);
+    let dex_home = temp.path().join("dex-home");
+    std::fs::create_dir_all(&dex_home).unwrap();
+    let dir = |cmd: &mut assert_cmd::Command| -> String {
+        let out = cmd
+            .arg("dir")
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        String::from_utf8(out).unwrap().trim().to_string()
+    };
+
+    assert_eq!(
+        dir(bare(temp.path()).current_dir(&repo)),
+        repo.canonicalize()
+            .unwrap()
+            .join(".dex")
+            .display()
+            .to_string()
+    );
+
+    std::fs::write(
+        dex_home.join("dex.toml"),
+        "[storage]\nengine = \"file\"\n[storage.file]\npath = \"/tmp/global-store\"\n",
+    )
+    .unwrap();
+    assert_eq!(
+        dir(bare(temp.path()).current_dir(&repo)),
+        "/tmp/global-store"
+    );
+
+    std::fs::create_dir_all(repo.join(".dex")).unwrap();
+    std::fs::write(
+        repo.join(".dex/config.toml"),
+        "[storage.file]\npath = \"/tmp/local-store\"\n",
+    )
+    .unwrap();
+    assert_eq!(
+        dir(bare(temp.path()).current_dir(&repo)),
+        "/tmp/local-store"
+    );
+
+    assert_eq!(
+        dir(bare(temp.path())
+            .current_dir(&repo)
+            .env("DEX_STORAGE_PATH", "/tmp/env-store")),
+        "/tmp/local-store",
+        "config path wins over the env var, as in original dex"
+    );
+    assert_eq!(
+        dir(bare(temp.path())
+            .current_dir(&repo)
+            .args(["--storage-path", "/tmp/flag-store"])),
+        "/tmp/flag-store"
+    );
+    assert_eq!(
+        dir(bare(temp.path())
+            .current_dir(&repo)
+            .args(["--storage-path=/tmp/eq-store"])),
+        "/tmp/eq-store"
+    );
+
+    let alt = temp.path().join("alt.toml");
+    std::fs::write(&alt, "[storage.file]\npath = \"/tmp/alt-store\"\n").unwrap();
+    std::fs::remove_file(repo.join(".dex/config.toml")).unwrap();
+    assert_eq!(
+        dir(bare(temp.path())
+            .current_dir(&repo)
+            .args(["--config", alt.to_str().unwrap()])),
+        "/tmp/alt-store"
+    );
+
+    std::fs::write(
+        dex_home.join("dex.toml"),
+        "[storage]\nengine = \"sqlite\"\n",
+    )
+    .unwrap();
+    bare(temp.path())
+        .current_dir(&repo)
+        .arg("dir")
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "Unsupported storage engine: sqlite",
+        ));
+}
+
+#[test]
+fn centralized_mode_keys_store_by_remote_or_path_hash() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = temp.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git_repo(&repo);
+    let dex_home = temp.path().join("dex-home");
+    std::fs::create_dir_all(&dex_home).unwrap();
+    std::fs::write(
+        dex_home.join("dex.toml"),
+        "[storage.file]\nmode = \"centralized\"\n",
+    )
+    .unwrap();
+    let dir = |cmd: &mut assert_cmd::Command| -> String {
+        let out = cmd
+            .arg("dir")
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        String::from_utf8(out).unwrap().trim().to_string()
+    };
+
+    let hashed = dir(bare(temp.path()).current_dir(&repo));
+    let prefix = dex_home.join("projects/path-").display().to_string();
+    assert!(
+        hashed.starts_with(&prefix) && hashed.len() == prefix.len() + 12,
+        "{hashed}"
+    );
+
+    for (url, key) in [
+        ("git@github.com:acme/widgets.git", "github.com-acme-widgets"),
+        (
+            "https://github.com/acme/widgets.git",
+            "github.com-acme-widgets",
+        ),
+    ] {
+        std::process::Command::new("git")
+            .current_dir(&repo)
+            .args(["remote", "remove", "origin"])
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .current_dir(&repo)
+            .args(["remote", "add", "origin", url])
+            .output()
+            .unwrap();
+        assert_eq!(
+            dir(bare(temp.path()).current_dir(&repo)),
+            dex_home.join("projects").join(key).display().to_string()
+        );
+    }
+}
+
+#[test]
+fn config_command_gets_sets_unsets_and_lists() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = temp.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git_repo(&repo);
+    let config = |args: &[&str]| -> assert_cmd::assert::Assert {
+        bare(temp.path())
+            .current_dir(&repo)
+            .arg("config")
+            .args(args)
+            .assert()
+    };
+
+    config(&["storage.file.mode"])
+        .success()
+        .stdout("(not set)\n");
+    config(&["storage.file.mode=centralized"])
+        .success()
+        .stdout("Set storage.file.mode = centralized in global config\n");
+    config(&["storage.file.mode"])
+        .success()
+        .stdout("centralized\n");
+    assert!(
+        std::fs::read_to_string(temp.path().join("dex-home/dex.toml"))
+            .unwrap()
+            .contains("mode = \"centralized\"")
+    );
+
+    config(&["--local", "sync.github.enabled=yes"])
+        .success()
+        .stdout("Set sync.github.enabled = true in local config\n");
+    assert!(
+        std::fs::read_to_string(repo.join(".dex/config.toml"))
+            .unwrap()
+            .contains("enabled = true")
+    );
+    config(&["--global", "sync.github.enabled=false"]).success();
+    config(&["sync.github.enabled"]).success().stdout("true\n");
+
+    config(&["--list"]).success().stdout(
+        "Configuration:\n\nstorage.file.mode = centralized [global]\nsync.github.enabled = true [local]\n",
+    );
+
+    config(&["--unset", "storage.file.mode"])
+        .success()
+        .stdout("Unset storage.file.mode in global config\n");
+    config(&["--unset", "storage.file.mode"])
+        .success()
+        .stdout("Key storage.file.mode was not set in global config\n");
+
+    config(&["storage.file.mode=weird"])
+        .failure()
+        .stderr(predicates::str::contains(
+            "Valid options: in-repo, centralized",
+        ));
+    config(&["sync.github.enabled=maybe"])
+        .failure()
+        .stderr(predicates::str::contains("Invalid boolean value"));
+    config(&["nope.key"])
+        .failure()
+        .stderr(predicates::str::contains("Unknown config key: nope.key"));
+    config(&["--global", "--local", "storage.file.mode"]).failure();
+    config(&[])
+        .failure()
+        .stderr(predicates::str::contains("Missing config key"));
 }

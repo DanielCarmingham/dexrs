@@ -4,38 +4,87 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{Context, anyhow};
+use anyhow::Context;
 use fs4::fs_std::FileExt;
 
 use crate::archive::{ArchivedTask, parse_archive_jsonl, serialize_archive_jsonl};
 use crate::task::{Task, parse_tasks_jsonl, serialize_tasks_jsonl};
 use crate::validate::validate_tasks;
 
-pub fn resolve_store_dir(cwd: &Path, env_path: Option<&OsStr>) -> anyhow::Result<PathBuf> {
-    if let Some(path) = env_path {
+pub struct Resolution<'a> {
+    pub cli_storage_path: Option<&'a Path>,
+    pub cli_config_path: Option<&'a Path>,
+    pub env_storage_path: Option<&'a OsStr>,
+}
+
+/// Precedence follows original dex: --storage-path, then storage.file.path
+/// from config, then DEX_STORAGE_PATH, then the mode default.
+pub fn resolve_store_dir(cwd: &Path, resolution: &Resolution<'_>) -> anyhow::Result<PathBuf> {
+    if let Some(path) = resolution.cli_storage_path {
+        return Ok(path.to_path_buf());
+    }
+    let config = crate::config::load(cwd, resolution.cli_config_path)?;
+    if let Some(path) = config.storage_path {
+        return Ok(path);
+    }
+    if let Some(path) = resolution.env_storage_path {
         return Ok(PathBuf::from(path));
     }
-
+    if config.centralized {
+        return Ok(crate::config::dex_home()?
+            .join("projects")
+            .join(project_key(cwd)?));
+    }
     if let Some(git_root) = git_root(cwd)? {
         return Ok(git_root.join(".dex"));
     }
-
-    home_config_fallback()
+    Ok(crate::config::dex_home()?.join("local"))
 }
 
-pub fn init_store(store_dir: &Path) -> anyhow::Result<()> {
-    fs::create_dir_all(store_dir)
-        .with_context(|| format!("failed to create store directory {}", store_dir.display()))?;
+fn project_key(cwd: &Path) -> anyhow::Result<String> {
+    let output = Command::new("git")
+        .args(["config", "--get", "remote.origin.url"])
+        .current_dir(cwd)
+        .output()
+        .with_context(|| format!("failed to run git from {}", cwd.display()))?;
+    let remote = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if output.status.success() && !remote.is_empty() {
+        return Ok(normalize_git_url(&remote));
+    }
+    Ok(format!("path-{}", short_hash(&cwd.display().to_string())))
+}
 
-    let task_file = store_dir.join("tasks.jsonl");
-    OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(&task_file)
-        .with_context(|| format!("failed to create task file {}", task_file.display()))?;
+fn normalize_git_url(url: &str) -> String {
+    let (host, path) = if let Some(rest) = url.strip_prefix("git@") {
+        match rest.split_once(':') {
+            Some(pair) => pair,
+            None => return format!("url-{}", short_hash(url)),
+        }
+    } else {
+        let without_scheme = match url.split_once("://") {
+            Some((_, rest)) => rest,
+            None => return format!("url-{}", short_hash(url)),
+        };
+        let without_user = without_scheme
+            .rsplit_once('@')
+            .map_or(without_scheme, |(_, rest)| rest);
+        match without_user.split_once('/') {
+            Some(pair) => pair,
+            None => return format!("url-{}", short_hash(url)),
+        }
+    };
+    let path = path.trim_start_matches('/').trim_end_matches(".git");
+    format!("{host}-{}", path.replace('/', "-"))
+}
 
-    Ok(())
+fn short_hash(input: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(input.as_bytes());
+    digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .take(6)
+        .collect()
 }
 
 pub fn read_tasks(store_dir: &Path) -> anyhow::Result<Vec<Task>> {
@@ -131,7 +180,7 @@ fn sync_directory(store_dir: &Path) {
     }
 }
 
-fn git_root(cwd: &Path) -> anyhow::Result<Option<PathBuf>> {
+pub fn git_root(cwd: &Path) -> anyhow::Result<Option<PathBuf>> {
     let output = Command::new("git")
         .arg("rev-parse")
         .arg("--show-toplevel")
@@ -151,9 +200,4 @@ fn git_root(cwd: &Path) -> anyhow::Result<Option<PathBuf>> {
     } else {
         Ok(Some(PathBuf::from(path)))
     }
-}
-
-fn home_config_fallback() -> anyhow::Result<PathBuf> {
-    let home = std::env::var_os("HOME").ok_or_else(|| anyhow!("HOME is not set"))?;
-    Ok(PathBuf::from(home).join(".config/dex/local"))
 }

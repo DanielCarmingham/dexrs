@@ -1,6 +1,7 @@
 pub mod archive;
 mod cli;
 mod commands;
+pub mod config;
 mod git;
 pub mod listing;
 pub mod relations;
