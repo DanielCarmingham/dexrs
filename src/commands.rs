@@ -530,10 +530,10 @@ where
                 let values: Vec<serde_json::Value> = selected
                     .iter()
                     .map(|shown| match shown {
-                        Shown::Live(task) => serde_json::to_value(task),
-                        Shown::Archived(record) => serde_json::to_value(record),
+                        Shown::Live(task) => show::enriched_json(&tasks, task, expand),
+                        Shown::Archived(record) => show::archived_json(record),
                     })
-                    .collect::<Result<_, _>>()?;
+                    .collect();
                 match values.as_slice() {
                     [single] => writeln!(stdout, "{single}")?,
                     many => writeln!(stdout, "{}", serde_json::Value::Array(many.to_vec()))?,
@@ -544,7 +544,7 @@ where
                         writeln!(stdout)?;
                     }
                     let rendered = match shown {
-                        Shown::Live(task) => show::render(&tasks, task, full || expand),
+                        Shown::Live(task) => show::render(&tasks, task, full, expand),
                         Shown::Archived(record) => show::render_archived(record),
                     };
                     write!(stdout, "{rendered}")?;

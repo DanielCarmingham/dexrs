@@ -1712,3 +1712,226 @@ fn config_command_gets_sets_unsets_and_lists() {
         .failure()
         .stderr(predicates::str::contains("Missing config key"));
 }
+
+fn show_text(store: &std::path::Path, args: &[&str]) -> String {
+    let out = dexrs(store)
+        .arg("show")
+        .args(args)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    String::from_utf8(out).unwrap()
+}
+
+fn show_json(store: &std::path::Path, args: &[&str]) -> serde_json::Value {
+    serde_json::from_str(&show_text(store, &[args, &["--json"]].concat())).unwrap()
+}
+
+#[test]
+fn show_json_is_enriched_like_original() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let root = create(&store, &["Root", "-d", "root details"]);
+    let mid = create(&store, &["Mid", "--parent", &root]);
+    let leaf_done = create(&store, &["Leaf done", "--parent", &mid]);
+    let leaf_open = create(&store, &["Leaf open", "--parent", &mid]);
+    let deep = create(&store, &["Deep", "--parent", &leaf_open]);
+    let blocker_done = create(&store, &["Blocker done"]);
+    let blocker_open = create(&store, &["Blocker open"]);
+    let downstream = create(&store, &["Downstream", "--blocked-by", &mid]);
+    dexrs(&store)
+        .args([
+            "edit",
+            &mid,
+            "--add-blocker",
+            &format!("{blocker_done},{blocker_open}"),
+        ])
+        .assert()
+        .success();
+    complete(&store, &leaf_done);
+    complete(&store, &blocker_done);
+
+    let json = show_json(&store, &[&mid]);
+    assert_eq!(json["id"], mid);
+    assert_eq!(
+        json["ancestors"],
+        serde_json::json!([{"id": root, "name": "Root"}])
+    );
+    assert_eq!(json["depth"], 1);
+    assert_eq!(json["subtasks"]["pending"], 1);
+    assert_eq!(json["subtasks"]["completed"], 1);
+    let child_ids: Vec<&str> = json["subtasks"]["children"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|task| task["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(child_ids.len(), 2);
+    assert!(child_ids.contains(&leaf_done.as_str()) && child_ids.contains(&leaf_open.as_str()));
+    assert_eq!(
+        json["subtasks"]["children"][0]["blockedBy"],
+        serde_json::json!([])
+    );
+    assert_eq!(json["grandchildren"]["pending"], 1);
+    assert_eq!(json["grandchildren"]["completed"], 0);
+    assert_eq!(json["grandchildren"]["tasks"][0]["id"], deep);
+    assert_eq!(
+        json["blockedBy"],
+        serde_json::json!([{"id": blocker_open, "name": "Blocker open", "completed": false}])
+    );
+    assert_eq!(
+        json["blocks"],
+        serde_json::json!([{"id": downstream, "name": "Downstream", "completed": false}])
+    );
+    assert_eq!(json["isBlocked"], true);
+
+    let expanded = show_json(&store, &[&mid, "--expand"]);
+    assert_eq!(
+        expanded["ancestors"],
+        serde_json::json!([{"id": root, "name": "Root", "description": "root details"}])
+    );
+
+    let leaf = show_json(&store, &[&deep]);
+    assert_eq!(leaf["depth"], 3);
+    assert_eq!(leaf["grandchildren"], serde_json::Value::Null);
+    assert_eq!(leaf["isBlocked"], false);
+
+    let both = show_json(&store, &[&root, &deep]);
+    assert_eq!(both.as_array().unwrap().len(), 2);
+    assert_eq!(both[1]["depth"], 3);
+
+    complete(&store, &blocker_open);
+    dexrs(&store)
+        .args(["archive", &blocker_open])
+        .assert()
+        .success();
+    let archived = show_json(&store, &[&blocker_open]);
+    assert_eq!(archived["archived"], true);
+    assert!(archived["archived_at"].is_string());
+}
+
+#[test]
+fn show_text_sections_match_original_layout() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let sha = git_repo_with_commit(temp.path());
+    let root = create(&store, &["Root", "-d", "root details"]);
+    let mid = create(&store, &["Mid", "--parent", &root]);
+    let child_p2 = create(&store, &["Child p2", "--parent", &mid, "-p", "2"]);
+    let child_done = create(&store, &["Child done", "--parent", &mid]);
+    let child_open = create(&store, &["Child open", "--parent", &mid]);
+    let _grandchild = create(&store, &["Grandchild", "--parent", &child_open]);
+    let blocker = create(&store, &["Blocker"]);
+    dexrs(&store)
+        .args(["edit", &mid, "--add-blocker", &blocker, "-d", "mid details"])
+        .assert()
+        .success();
+    complete(&store, &child_done);
+    dexrs(&store)
+        .current_dir(temp.path())
+        .args(["edit", &mid, "--commit", &sha])
+        .assert()
+        .success();
+    write_metadata(
+        &store,
+        &root,
+        serde_json::json!({"github": {"issueNumber": 42, "repo": "acme/widgets", "issueUrl": "https://example.invalid/42"}}),
+    );
+
+    let output = show_text(&store, &[&mid]);
+    let expected = format!(
+        "[ ] {root}: Root\n\
+         └── [ ] {mid}: Mid (3 subtasks)  ← viewing\n\
+         \x20   ├── [ ] {child_open}: Child open (1 subtask)\n\
+         \x20   ├── [x] {child_done}: Child done\n\
+         \x20   └── [ ] {child_p2}: Child p2\n\
+         \n\
+         Blocked by:\n\
+         \x20 • {blocker}: Blocker\n\
+         \n\
+         Description:\n\
+         \x20 mid details\n\
+         \n\
+         Commit:\n\
+         \x20 SHA:    {sha}\n\
+         \x20 Message: first change\n\
+         \x20 Branch:  main\n\
+         \n\
+         GitHub Issue:\n\
+         \x20 #42 (acme/widgets) (via parent)\n\
+         \x20 https://example.invalid/42\n\
+         \n"
+    );
+    assert!(
+        output.starts_with(&expected),
+        "got:\n{output}\nexpected prefix:\n{expected}"
+    );
+    assert!(output.ends_with(&format!(
+        "\nMore Information:\n  • View parent task: dex show {root}\n  • View subtree: dex list {mid}\n"
+    )), "{output}");
+    assert!(output.contains("\nCreated:   20"), "{output}");
+
+    let expanded = show_text(&store, &[&mid, "--expand"]);
+    assert!(
+        expanded.contains(&format!(": Root\n      root details\n└── [ ] {mid}")),
+        "{expanded}"
+    );
+}
+
+#[test]
+fn show_plain_task_has_no_tree_and_truncates_at_300() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let long = "y".repeat(400);
+    let id = create(&store, &["Plain", "-p", "3", "-d", &long]);
+    let stamp_lines = |text: &str| {
+        text.lines()
+            .filter(|line| line.starts_with("Created:") || line.starts_with("Updated:"))
+            .count()
+    };
+
+    let output = show_text(&store, &[&id]);
+    assert!(
+        output.starts_with(&format!(
+            "[ ] {id} [p3]: Plain\n\nDescription:\n  {}...\n",
+            "y".repeat(297)
+        )),
+        "{output}"
+    );
+    assert!(
+        output.ends_with(&format!(
+            "\nMore Information:\n  • View full content: dex show {id} --full\n"
+        )),
+        "{output}"
+    );
+    assert_eq!(stamp_lines(&output), 2);
+
+    let full = show_text(&store, &[&id, "--full"]);
+    assert!(
+        full.contains(&long) && !full.contains("More Information"),
+        "{full}"
+    );
+}
+
+#[test]
+fn list_and_show_trees_truncate_long_names() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let name = "n".repeat(80);
+    let parent = create(&store, &[&name]);
+    let child = create(&store, &["Child", "--parent", &parent]);
+
+    let listed = list(&store, &[]);
+    assert!(
+        listed.contains(&format!("{parent}: {}...\n", "n".repeat(57))),
+        "{listed}"
+    );
+
+    let shown = show_text(&store, &[&child]);
+    assert!(
+        shown.contains(&format!("{parent}: {}...\n", "n".repeat(47))),
+        "{shown}"
+    );
+}

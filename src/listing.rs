@@ -139,8 +139,14 @@ pub fn commit_sha(task: &Task) -> Option<&str> {
     task.metadata.as_ref()?["commit"]["sha"].as_str()
 }
 
+const LIST_NAME_MAX: usize = 60;
+
 pub fn listed_line(tasks: &[Task], task: &Task) -> String {
     let mut line = task_line(tasks, task);
+    if task.name.chars().count() > LIST_NAME_MAX {
+        line.truncate(line.len() - task.name.len());
+        line.push_str(&crate::show::truncate(&task.name, LIST_NAME_MAX));
+    }
     if task.completed {
         line.push_str(&format!(
             " ({})",
