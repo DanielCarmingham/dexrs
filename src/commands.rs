@@ -5,6 +5,9 @@ use anyhow::Context;
 use clap::Parser;
 use serde_json::json;
 
+use std::collections::HashSet;
+
+use crate::archive;
 use crate::cli::{Cli, Command};
 use crate::git;
 use crate::listing::{self, ListFilter};
@@ -12,7 +15,7 @@ use crate::relations;
 use crate::show;
 use crate::status;
 use crate::store;
-use crate::task::{Task, generate_id, timestamp};
+use crate::task::{Task, generate_id, serialize_tasks_jsonl, timestamp};
 use crate::validate::validate_completion;
 
 pub fn run<I, W, E>(args: I, mut stdout: W, _stderr: E) -> anyhow::Result<i32>
@@ -66,6 +69,73 @@ where
                 Ok(task)
             })?;
             writeln!(stdout, "created {}", task.id)?;
+            Ok(0)
+        }
+        Command::Archive {
+            id,
+            completed,
+            older_than,
+            except,
+            dry_run,
+        } => {
+            if id.is_none() && !completed && older_than.is_none() {
+                anyhow::bail!(
+                    "specify a task id, --completed, or --older-than <duration>\nUsage: dexrs archive <task-id> | --completed | --older-than 30d"
+                );
+            }
+            let cutoff = older_than
+                .as_deref()
+                .map(archive::cutoff_for_duration)
+                .transpose()?;
+            let except: HashSet<String> = except
+                .iter()
+                .flat_map(|value| relations::split_ids(value))
+                .map(str::to_string)
+                .collect();
+            let store = resolved_store()?;
+            let outcome = store::transact_with_archive(&store, |tasks, archived| {
+                let roots: Vec<String> = match &id {
+                    Some(id) => {
+                        archive::check_archivable(tasks, id)?;
+                        vec![id.clone()]
+                    }
+                    None => archive::bulk_candidates(tasks, cutoff.as_deref(), &except)
+                        .into_iter()
+                        .map(|task| task.id.clone())
+                        .collect(),
+                };
+                if roots.is_empty() {
+                    return Ok(None);
+                }
+                let before = serialize_tasks_jsonl(tasks)?.len();
+                let mut preview = tasks.clone();
+                let records = archive::archive_subtrees(&mut preview, &roots);
+                let after = serialize_tasks_jsonl(&preview)?.len();
+                if !dry_run {
+                    *tasks = preview;
+                    archived.extend(records.iter().cloned());
+                }
+                Ok(Some(ArchiveOutcome {
+                    archived: records.len(),
+                    roots: roots.len(),
+                    reduction_percent: (before - after) * 100 / before.max(1),
+                }))
+            })?;
+            let Some(outcome) = outcome else {
+                writeln!(stdout, "No tasks found to archive.")?;
+                return Ok(0);
+            };
+            let verb = if dry_run { "Would archive" } else { "Archived" };
+            let mut line = format!("{verb} {}", plural(outcome.archived, "task"));
+            if id.is_none() {
+                line.push_str(&format!(" ({})", plural(outcome.roots, "root task")));
+            }
+            writeln!(stdout, "{line}")?;
+            let subtasks = outcome.archived - outcome.roots;
+            if subtasks > 0 {
+                writeln!(stdout, "  Subtasks: {subtasks}")?;
+            }
+            writeln!(stdout, "  Size reduction: {}%", outcome.reduction_percent)?;
             Ok(0)
         }
         Command::Plan {
@@ -240,11 +310,32 @@ where
             in_progress,
             blocked,
             ready,
+            archived,
             flat,
             query,
             json,
         } => {
             let store = resolved_store()?;
+            if archived {
+                let mut records = store::read_archive(&store)?;
+                records.reverse();
+                if json {
+                    writeln!(stdout, "{}", serde_json::to_string(&records)?)?;
+                } else if records.is_empty() {
+                    writeln!(stdout, "No archived tasks found.")?;
+                } else {
+                    writeln!(
+                        stdout,
+                        "Showing {}\n",
+                        plural(records.len(), "archived task")
+                    )?;
+                    for record in &records {
+                        let line = show::render_archived(record);
+                        writeln!(stdout, "{}", line.lines().next().unwrap_or_default())?;
+                    }
+                }
+                return Ok(0);
+            }
             let tasks = store::read_tasks(&store)?;
             let filter = ListFilter {
                 all,
@@ -274,23 +365,43 @@ where
         } => {
             let store = resolved_store()?;
             let tasks = store::read_tasks(&store)?;
+            let archive = store::read_archive(&store)?;
             let selected = ids
                 .iter()
                 .map(|id| {
-                    listing::find(&tasks, id).ok_or_else(|| anyhow::anyhow!("task {id} not found"))
+                    listing::find(&tasks, id)
+                        .map(Shown::Live)
+                        .or_else(|| {
+                            archive
+                                .iter()
+                                .find(|record| record.id == *id)
+                                .map(Shown::Archived)
+                        })
+                        .ok_or_else(|| anyhow::anyhow!("task {id} not found"))
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?;
             if json {
-                match selected.as_slice() {
-                    [task] => writeln!(stdout, "{}", serde_json::to_string(task)?)?,
-                    many => writeln!(stdout, "{}", serde_json::to_string(many)?)?,
+                let values: Vec<serde_json::Value> = selected
+                    .iter()
+                    .map(|shown| match shown {
+                        Shown::Live(task) => serde_json::to_value(task),
+                        Shown::Archived(record) => serde_json::to_value(record),
+                    })
+                    .collect::<Result<_, _>>()?;
+                match values.as_slice() {
+                    [single] => writeln!(stdout, "{single}")?,
+                    many => writeln!(stdout, "{}", serde_json::Value::Array(many.to_vec()))?,
                 }
             } else {
-                for (index, task) in selected.iter().enumerate() {
+                for (index, shown) in selected.iter().enumerate() {
                     if index > 0 {
                         writeln!(stdout)?;
                     }
-                    write!(stdout, "{}", show::render(&tasks, task, full || expand))?;
+                    let rendered = match shown {
+                        Shown::Live(task) => show::render(&tasks, task, full || expand),
+                        Shown::Archived(record) => show::render_archived(record),
+                    };
+                    write!(stdout, "{rendered}")?;
                 }
             }
             Ok(0)
@@ -301,6 +412,25 @@ where
 fn resolved_store() -> anyhow::Result<std::path::PathBuf> {
     let cwd = std::env::current_dir()?;
     store::resolve_store_dir(&cwd, std::env::var_os("DEX_STORAGE_PATH").as_deref())
+}
+
+enum Shown<'a> {
+    Live(&'a Task),
+    Archived(&'a crate::archive::ArchivedTask),
+}
+
+struct ArchiveOutcome {
+    archived: usize,
+    roots: usize,
+    reduction_percent: usize,
+}
+
+fn plural(count: usize, noun: &str) -> String {
+    if count == 1 {
+        format!("{count} {noun}")
+    } else {
+        format!("{count} {noun}s")
+    }
 }
 
 fn plan_name(file: &std::path::Path, contents: &str) -> String {

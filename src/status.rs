@@ -1,7 +1,7 @@
 use serde::Serialize;
 use serde_json::json;
 
-use crate::listing::{find, is_blocked, is_in_progress, render_tree, task_line};
+use crate::listing::{find, is_blocked, is_in_progress, listed_line, render_tree};
 use crate::task::Task;
 
 const RECENT_LIMIT: usize = 5;
@@ -94,13 +94,7 @@ pub fn render(tasks: &[Task], dashboard: &Dashboard<'_>) -> String {
     let recent: String = dashboard
         .recently_completed
         .iter()
-        .map(|task| {
-            format!(
-                "{} ({})\n",
-                task_line(tasks, task),
-                relative_age(task.completed_at.as_deref())
-            )
-        })
+        .map(|task| format!("{}\n", listed_line(tasks, task)))
         .collect();
     push_section(&mut output, "Recently Completed", recent);
     output
@@ -137,22 +131,4 @@ fn sorted<'a>(tasks: impl Iterator<Item = &'a Task>) -> Vec<&'a Task> {
             .then_with(|| left.id.cmp(&right.id))
     });
     tasks
-}
-
-fn relative_age(timestamp: Option<&str>) -> String {
-    let parsed = timestamp.and_then(|value| {
-        time::OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339).ok()
-    });
-    let Some(then) = parsed else {
-        return "unknown".to_string();
-    };
-    let elapsed = time::OffsetDateTime::now_utc() - then;
-    let minutes = elapsed.whole_minutes().max(0);
-    if minutes < 60 {
-        format!("{minutes}m ago")
-    } else if minutes < 60 * 24 {
-        format!("{}h ago", minutes / 60)
-    } else {
-        format!("{}d ago", minutes / (60 * 24))
-    }
 }

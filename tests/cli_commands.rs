@@ -1090,3 +1090,316 @@ fn plan_with_missing_file_fails_without_creating_a_task() {
 
     assert!(read_tasks(&store).is_empty());
 }
+
+fn complete(store: &std::path::Path, id: &str) {
+    dexrs(store)
+        .args(["complete", id, "-r", &format!("result of {id}")])
+        .assert()
+        .success();
+}
+
+fn archive_records(store: &std::path::Path) -> Vec<serde_json::Value> {
+    std::fs::read_to_string(store.join("archive.jsonl"))
+        .unwrap_or_default()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+#[test]
+fn archive_moves_completed_task_to_compact_archive_record() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let keep = create(&store, &["Keep", "-d", "still open"]);
+    let done = create(
+        &store,
+        &["Done", "-d", "finished work", "--blocked-by", &keep],
+    );
+    complete(&store, &done);
+
+    dexrs(&store)
+        .args(["archive", &done])
+        .assert()
+        .success()
+        .stdout(predicates::str::starts_with(
+            "Archived 1 task\n  Size reduction: ",
+        ));
+
+    let remaining = read_tasks(&store);
+    assert_eq!(remaining.len(), 1);
+    assert!(
+        remaining[0].blocks.is_empty(),
+        "blocks still reference the archived task"
+    );
+    let records = archive_records(&store);
+    assert_eq!(records.len(), 1);
+    let record = &records[0];
+    assert_eq!(record["id"], done);
+    assert_eq!(record["parent_id"], serde_json::Value::Null);
+    assert_eq!(record["name"], "Done");
+    assert_eq!(record["description"], "finished work");
+    assert_eq!(record["result"], format!("result of {done}"));
+    assert!(record["completed_at"].is_string());
+    assert!(record["archived_at"].is_string());
+    assert_eq!(record["metadata"], serde_json::Value::Null);
+    assert_eq!(record["archived_children"], serde_json::json!([]));
+    assert_eq!(record.as_object().unwrap().len(), 9);
+}
+
+#[test]
+fn archive_refuses_incomplete_task_descendant_or_ancestor() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let open = create(&store, &["Open"]);
+    let parent = create(&store, &["Parent"]);
+    let child = create(&store, &["Child", "--parent", &parent]);
+    let done_child = create(&store, &["Done child", "--parent", &open]);
+    complete(&store, &done_child);
+
+    dexrs(&store)
+        .args(["archive", &open])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("not completed"));
+
+    dexrs(&store)
+        .args(["complete", &parent, "-r", "forced", "--force"])
+        .assert()
+        .success();
+    dexrs(&store)
+        .args(["archive", &parent])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(&child));
+
+    dexrs(&store)
+        .args(["archive", &done_child])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("incomplete ancestor"));
+
+    dexrs(&store)
+        .args(["archive", "zzzzzzzz"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("not found"));
+
+    assert_eq!(read_tasks(&store).len(), 4);
+    assert!(archive_records(&store).is_empty());
+}
+
+#[test]
+fn archive_subtree_writes_a_record_per_task_with_child_summaries() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let parent = create(&store, &["Parent"]);
+    let child = create(&store, &["Child", "--parent", &parent]);
+    let grandchild = create(&store, &["Grandchild", "--parent", &child]);
+    for id in [&grandchild, &child, &parent] {
+        complete(&store, id);
+    }
+
+    dexrs(&store)
+        .args(["archive", &parent])
+        .assert()
+        .success()
+        .stdout(predicates::str::starts_with(
+            "Archived 3 tasks\n  Subtasks: 2\n",
+        ));
+
+    assert!(read_tasks(&store).is_empty());
+    let records = archive_records(&store);
+    let by_id = |id: &str| {
+        records
+            .iter()
+            .find(|record| record["id"] == id)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(records.len(), 3);
+    assert_eq!(by_id(&child)["parent_id"], parent);
+    assert_eq!(
+        by_id(&parent)["archived_children"],
+        serde_json::json!([{
+            "id": child, "name": "Child", "description": "", "result": format!("result of {child}")
+        }])
+    );
+    assert_eq!(
+        by_id(&grandchild)["archived_children"],
+        serde_json::json!([])
+    );
+}
+
+#[test]
+fn archive_completed_skips_tasks_under_open_parents_and_honours_except() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let open = create(&store, &["Open"]);
+    let done_a = create(&store, &["Done A"]);
+    let done_b = create(&store, &["Done B"]);
+    let kept = create(&store, &["Kept"]);
+    let under_open = create(&store, &["Under open", "--parent", &open]);
+    for id in [&done_a, &done_b, &kept, &under_open] {
+        complete(&store, id);
+    }
+
+    dexrs(&store)
+        .args(["archive", "--completed", "--except", &kept])
+        .assert()
+        .success()
+        .stdout(predicates::str::starts_with(
+            "Archived 2 tasks (2 root tasks)\n",
+        ));
+
+    let remaining: Vec<String> = read_tasks(&store).into_iter().map(|task| task.id).collect();
+    assert!(
+        remaining.contains(&open) && remaining.contains(&kept) && remaining.contains(&under_open)
+    );
+    assert_eq!(remaining.len(), 3);
+    assert_eq!(archive_records(&store).len(), 2);
+
+    dexrs(&store)
+        .args(["archive", "--completed"])
+        .assert()
+        .success()
+        .stdout(predicates::str::starts_with(
+            "Archived 1 task (1 root task)\n",
+        ));
+    dexrs(&store)
+        .args(["archive", "--completed"])
+        .assert()
+        .success()
+        .stdout("No tasks found to archive.\n");
+}
+
+#[test]
+fn archive_older_than_filters_by_completion_age_and_validates_duration() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let recent = create(&store, &["Recent"]);
+    let old = create(&store, &["Old"]);
+    complete(&store, &recent);
+    complete(&store, &old);
+    let mut tasks = read_tasks(&store);
+    tasks
+        .iter_mut()
+        .find(|task| task.id == old)
+        .unwrap()
+        .completed_at = Some("2020-01-01T00:00:00Z".to_string());
+    std::fs::write(
+        store.join("tasks.jsonl"),
+        dexrs::task::serialize_tasks_jsonl(&tasks).unwrap(),
+    )
+    .unwrap();
+
+    dexrs(&store)
+        .args(["archive", "--older-than", "5x"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("Invalid duration"));
+
+    dexrs(&store)
+        .args(["archive", "--older-than", "60d"])
+        .assert()
+        .success()
+        .stdout(predicates::str::starts_with(
+            "Archived 1 task (1 root task)\n",
+        ));
+    assert_eq!(read_tasks(&store)[0].id, recent);
+    assert_eq!(archive_records(&store)[0]["id"], old);
+
+    for duration in ["1w", "1m"] {
+        dexrs(&store)
+            .args(["archive", "--older-than", duration])
+            .assert()
+            .success()
+            .stdout("No tasks found to archive.\n");
+    }
+}
+
+#[test]
+fn archive_dry_run_reports_without_changing_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let done = create(&store, &["Done"]);
+    complete(&store, &done);
+    let before = std::fs::read_to_string(store.join("tasks.jsonl")).unwrap();
+
+    dexrs(&store)
+        .args(["archive", "--completed", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Would archive 1 task"));
+
+    assert_eq!(
+        std::fs::read_to_string(store.join("tasks.jsonl")).unwrap(),
+        before
+    );
+    assert!(!store.join("archive.jsonl").exists());
+}
+
+#[test]
+fn list_archived_shows_archive_newest_first_and_show_reads_archived_task() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let first = create(&store, &["First"]);
+    let parent = create(&store, &["Parent"]);
+    let child = create(&store, &["Child", "--parent", &parent]);
+    for id in [&first, &child, &parent] {
+        complete(&store, id);
+    }
+    dexrs(&store).args(["archive", &first]).assert().success();
+    dexrs(&store).args(["archive", &parent]).assert().success();
+
+    let output = list(&store, &["--archived"]);
+    assert!(
+        output.starts_with("Showing 3 archived tasks\n\n"),
+        "{output}"
+    );
+    let lines: Vec<&str> = output.lines().skip(2).collect();
+    assert_eq!(lines.len(), 3);
+    assert!(
+        lines[2] == format!("[x] {first}: First (ARCHIVED)"),
+        "{output}"
+    );
+    assert!(
+        lines.contains(&format!("[x] {parent}: Parent (1 subtask) (ARCHIVED)").as_str()),
+        "{output}"
+    );
+
+    let json: serde_json::Value =
+        serde_json::from_str(&list(&store, &["--archived", "--json"])).unwrap();
+    assert_eq!(json.as_array().unwrap().len(), 3);
+    assert!(json[0]["archived_at"].is_string());
+
+    let shown = dexrs(&store)
+        .args(["show", &first])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let shown = String::from_utf8(shown).unwrap();
+    assert!(shown.starts_with(&format!("[x] {first}: First (ARCHIVED)\n\nDescription:\n  (no description)\n\nResult:\n  result of {first}\n\nCompleted: ")), "{shown}");
+    assert!(shown.contains("\nArchived:  "), "{shown}");
+
+    assert_eq!(list(&store, &["--archived", "--flat"]).lines().count(), 5);
+    let empty = tempfile::tempdir().unwrap();
+    assert_eq!(
+        list(&empty.path().join("store"), &["--archived"]),
+        "No archived tasks found.\n"
+    );
+}
+
+#[test]
+fn list_marks_completed_tasks_with_relative_age() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let done = create(&store, &["Done"]);
+    complete(&store, &done);
+
+    assert_eq!(
+        list(&store, &["--completed"]),
+        format!("[x] {done}: Done (0m ago)\n")
+    );
+}

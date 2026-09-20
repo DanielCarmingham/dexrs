@@ -17,7 +17,7 @@ No active implementation task.
 - [ ] MCP server support
 - [ ] GitHub sync
 - [ ] Shortcut sync
-- [ ] Archive/import/export commands
+- [ ] Import/export commands
 - [ ] Shell completions
 - [ ] `dex config`
 
@@ -34,6 +34,7 @@ No active implementation task.
       `delete --force`, and `status` as the default command
 - [x] Match the original `status` dashboard and `--json` shape
 - [x] Implement `plan <file>`
+- [x] Implement `archive`, `list --archived`, and archived `show`
 
 - [x] Write the dexrs MVP design spec
 - [x] Write the dexrs MVP implementation plan

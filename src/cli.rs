@@ -25,6 +25,17 @@ pub enum Command {
         #[arg(short, long)]
         blocked_by: Option<String>,
     },
+    Archive {
+        id: Option<String>,
+        #[arg(long, conflicts_with_all = ["id", "older_than"])]
+        completed: bool,
+        #[arg(long, conflicts_with = "id")]
+        older_than: Option<String>,
+        #[arg(long)]
+        except: Option<String>,
+        #[arg(long)]
+        dry_run: bool,
+    },
     Plan {
         file: std::path::PathBuf,
         #[arg(short, long)]
@@ -90,6 +101,8 @@ pub enum Command {
         blocked: bool,
         #[arg(short, long)]
         ready: bool,
+        #[arg(long)]
+        archived: bool,
         #[arg(short, long)]
         flat: bool,
         #[arg(short, long, conflicts_with = "filter")]

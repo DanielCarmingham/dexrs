@@ -1,3 +1,4 @@
+pub mod archive;
 mod cli;
 mod commands;
 mod git;

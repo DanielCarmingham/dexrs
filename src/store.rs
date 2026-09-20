@@ -7,6 +7,7 @@ use std::process::Command;
 use anyhow::{Context, anyhow};
 use fs4::fs_std::FileExt;
 
+use crate::archive::{ArchivedTask, parse_archive_jsonl, serialize_archive_jsonl};
 use crate::task::{Task, parse_tasks_jsonl, serialize_tasks_jsonl};
 use crate::validate::validate_tasks;
 
@@ -48,10 +49,53 @@ pub fn read_tasks(store_dir: &Path) -> anyhow::Result<Vec<Task>> {
     }
 }
 
+pub fn read_archive(store_dir: &Path) -> anyhow::Result<Vec<ArchivedTask>> {
+    let archive_file = store_dir.join("archive.jsonl");
+    match fs::read_to_string(&archive_file) {
+        Ok(contents) => parse_archive_jsonl(&contents),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(error) => Err(error)
+            .with_context(|| format!("failed to read archive file {}", archive_file.display())),
+    }
+}
+
 pub fn transact<F, T>(store_dir: &Path, f: F) -> anyhow::Result<T>
 where
     F: FnOnce(&mut Vec<Task>) -> anyhow::Result<T>,
 {
+    let _lock = lock_store(store_dir)?;
+    let mut tasks = read_tasks(store_dir)?;
+    let result = f(&mut tasks)?;
+    validate_tasks(&tasks)?;
+    write_atomic(store_dir, "tasks.jsonl", &serialize_tasks_jsonl(&tasks)?)?;
+    Ok(result)
+}
+
+/// Like [`transact`], but the closure may also append to the archive. Both
+/// files are rewritten under the same lock; the archive is written first so a
+/// crash between the two writes duplicates a record rather than losing one.
+pub fn transact_with_archive<F, T>(store_dir: &Path, f: F) -> anyhow::Result<T>
+where
+    F: FnOnce(&mut Vec<Task>, &mut Vec<ArchivedTask>) -> anyhow::Result<T>,
+{
+    let _lock = lock_store(store_dir)?;
+    let mut tasks = read_tasks(store_dir)?;
+    let mut archive = read_archive(store_dir)?;
+    let archive_len = archive.len();
+    let result = f(&mut tasks, &mut archive)?;
+    validate_tasks(&tasks)?;
+    if archive.len() != archive_len {
+        write_atomic(
+            store_dir,
+            "archive.jsonl",
+            &serialize_archive_jsonl(&archive)?,
+        )?;
+    }
+    write_atomic(store_dir, "tasks.jsonl", &serialize_tasks_jsonl(&tasks)?)?;
+    Ok(result)
+}
+
+fn lock_store(store_dir: &Path) -> anyhow::Result<File> {
     fs::create_dir_all(store_dir)
         .with_context(|| format!("failed to create store directory {}", store_dir.display()))?;
 
@@ -63,26 +107,19 @@ where
         .open(store_dir.join("tasks.lock"))
         .with_context(|| format!("failed to open lock file in {}", store_dir.display()))?;
     lock_file.lock_exclusive()?;
-
-    let mut tasks = read_tasks(store_dir)?;
-    let result = f(&mut tasks)?;
-    validate_tasks(&tasks)?;
-    write_tasks_atomic(store_dir, &tasks)?;
-
-    Ok(result)
+    Ok(lock_file)
 }
 
-fn write_tasks_atomic(store_dir: &Path, tasks: &[Task]) -> anyhow::Result<()> {
-    let payload = serialize_tasks_jsonl(tasks)?;
+fn write_atomic(store_dir: &Path, file_name: &str, payload: &str) -> anyhow::Result<()> {
     let mut temp = tempfile::NamedTempFile::new_in(store_dir)
         .with_context(|| format!("failed to create temp file in {}", store_dir.display()))?;
     temp.write_all(payload.as_bytes())?;
     temp.as_file().sync_all()?;
 
-    let task_file = store_dir.join("tasks.jsonl");
-    temp.persist(&task_file)
+    let target = store_dir.join(file_name);
+    temp.persist(&target)
         .map_err(|error| error.error)
-        .with_context(|| format!("failed to replace task file {}", task_file.display()))?;
+        .with_context(|| format!("failed to replace {}", target.display()))?;
 
     sync_directory(store_dir);
     Ok(())

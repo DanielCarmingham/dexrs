@@ -55,7 +55,7 @@ pub fn select<'a>(tasks: &'a [Task], filter: &ListFilter) -> Vec<&'a Task> {
 pub fn render_flat(tasks: &[Task], selected: &[&Task]) -> String {
     selected
         .iter()
-        .map(|task| format!("{}\n", task_line(tasks, task)))
+        .map(|task| format!("{}\n", listed_line(tasks, task)))
         .collect()
 }
 
@@ -84,7 +84,7 @@ pub fn render_tree(tasks: &[Task], selected: &[&Task]) -> String {
 
     let mut output = String::new();
     for root in roots {
-        output.push_str(&task_line(tasks, root));
+        output.push_str(&listed_line(tasks, root));
         output.push('\n');
         render_children(tasks, root, &included, "", &mut output);
     }
@@ -109,6 +109,36 @@ pub fn task_line(tasks: &[Task], task: &Task) -> String {
     }
     line.push_str(&format!(": {}", task.name));
     line
+}
+
+pub fn listed_line(tasks: &[Task], task: &Task) -> String {
+    let mut line = task_line(tasks, task);
+    if task.completed {
+        line.push_str(&format!(
+            " ({})",
+            relative_age(task.completed_at.as_deref())
+        ));
+    }
+    line
+}
+
+pub fn relative_age(timestamp: Option<&str>) -> String {
+    let parsed = timestamp.and_then(|value| {
+        time::OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339).ok()
+    });
+    let Some(then) = parsed else {
+        return "unknown".to_string();
+    };
+    let minutes = (time::OffsetDateTime::now_utc() - then)
+        .whole_minutes()
+        .max(0);
+    if minutes < 60 {
+        format!("{minutes}m ago")
+    } else if minutes < 60 * 24 {
+        format!("{}h ago", minutes / 60)
+    } else {
+        format!("{}d ago", minutes / (60 * 24))
+    }
 }
 
 pub fn status_icon(task: &Task) -> &'static str {
@@ -163,7 +193,7 @@ fn render_children(
         };
         output.push_str(prefix);
         output.push_str(branch);
-        output.push_str(&task_line(tasks, child));
+        output.push_str(&listed_line(tasks, child));
         output.push('\n');
         render_children(
             tasks,

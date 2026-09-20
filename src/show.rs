@@ -1,3 +1,4 @@
+use crate::archive::ArchivedTask;
 use crate::listing::{find, task_line};
 use crate::task::Task;
 
@@ -19,6 +20,29 @@ pub fn render(tasks: &[Task], task: &Task, full: bool) -> String {
     push_timestamp(&mut output, "Updated:  ", task.updated_at.as_deref());
     push_timestamp(&mut output, "Started:  ", task.started_at.as_deref());
     push_timestamp(&mut output, "Completed:", task.completed_at.as_deref());
+    output
+}
+
+pub fn render_archived(record: &ArchivedTask) -> String {
+    let mut output = format!("[x] {}: {}", record.id, record.name);
+    match record.archived_children.len() {
+        0 => {}
+        1 => output.push_str(" (1 subtask)"),
+        count => output.push_str(&format!(" ({count} subtasks)")),
+    }
+    output.push_str(" (ARCHIVED)\n");
+    let description = if record.description.is_empty() {
+        "(no description)"
+    } else {
+        record.description.as_str()
+    };
+    push_text_section(&mut output, "Description", description, true);
+    if let Some(result) = &record.result {
+        push_text_section(&mut output, "Result", result, true);
+    }
+    output.push('\n');
+    push_timestamp(&mut output, "Completed:", record.completed_at.as_deref());
+    push_timestamp(&mut output, "Archived: ", Some(&record.archived_at));
     output
 }
 

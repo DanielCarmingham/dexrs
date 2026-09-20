@@ -37,9 +37,12 @@ share a `.dex/tasks.jsonl` file.
   `--remove-blocker`, `--commit`
 - `delete` / `rm` / `remove` `<id>`, `--force`
 - `plan <file>`, `-p`, `--parent`
+- `archive <id>` or `--completed` or `--older-than 30d`, with `--except`
+  and `--dry-run`; archived tasks go to `archive.jsonl` in the original's
+  format and are visible via `list --archived` and `show`
 
-Not implemented: `config`, `mcp`, `archive`, `sync`, `import`, `export`,
-`completion`, and the `--issue` / `--commit` lookups on `list`.
+Not implemented: `config`, `mcp`, `sync`, `import`, `export`, `completion`,
+and the `--issue` / `--commit` lookups on `list`.
 
 ## Testing Against the Original
 
