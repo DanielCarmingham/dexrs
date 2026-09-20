@@ -131,7 +131,7 @@ pub fn archive_subtrees(tasks: &mut Vec<Task>, roots: &[String]) -> Vec<Archived
             result: task.result.clone(),
             completed_at: task.completed_at.clone(),
             archived_at: archived_at.clone(),
-            metadata: task.metadata.clone(),
+            metadata: compact_metadata(task.metadata.as_ref()),
             archived_children: task
                 .children
                 .iter()
@@ -154,6 +154,71 @@ pub fn archive_subtrees(tasks: &mut Vec<Task>, roots: &[String]) -> Vec<Archived
         task.blocks.retain(|blocked| !ids.contains(blocked));
     }
     records
+}
+
+fn compact_metadata(metadata: Option<&serde_json::Value>) -> Option<serde_json::Value> {
+    let metadata = metadata?;
+    let mut kept = serde_json::Map::new();
+    for key in ["github", "commit"] {
+        if let Some(value) = metadata.get(key) {
+            kept.insert(key.to_string(), value.clone());
+        }
+    }
+    (!kept.is_empty()).then_some(serde_json::Value::Object(kept))
+}
+
+/// Archives completed root tasks older than `age_days` whose commit, if
+/// any, is on the remote, keeping the `keep_recent` most recently completed
+/// tasks. Returns the archived roots for logging.
+pub fn auto_archive(
+    tasks: &mut Vec<Task>,
+    archived: &mut Vec<ArchivedTask>,
+    config: &crate::config::ArchiveConfig,
+    cwd: &std::path::Path,
+) -> Vec<(String, String)> {
+    if !config.auto {
+        return Vec::new();
+    }
+    let now = time::OffsetDateTime::now_utc();
+    let parse = |stamp: &str| {
+        time::OffsetDateTime::parse(stamp, &time::format_description::well_known::Rfc3339).ok()
+    };
+    let mut completed: Vec<&Task> = tasks
+        .iter()
+        .filter(|task| task.completed && task.completed_at.is_some())
+        .collect();
+    completed.sort_by(|left, right| right.completed_at.cmp(&left.completed_at));
+    let recent: HashSet<String> = completed
+        .iter()
+        .take(config.keep_recent)
+        .map(|task| task.id.clone())
+        .collect();
+
+    let roots: Vec<(String, String)> = tasks
+        .iter()
+        .filter(|task| task.parent_id.is_none() && task.completed)
+        .filter(|task| !recent.contains(&task.id))
+        .filter(|task| {
+            task.completed_at
+                .as_deref()
+                .and_then(parse)
+                .is_some_and(|completed_at| (now - completed_at).whole_days() >= config.age_days)
+        })
+        .filter(|task| check_archivable(tasks, &task.id).is_ok())
+        .filter(|task| {
+            task.metadata
+                .as_ref()
+                .and_then(|m| m["commit"]["sha"].as_str())
+                .is_none_or(|sha| crate::sync::is_commit_on_remote(cwd, sha))
+        })
+        .map(|task| (task.id.clone(), task.name.clone()))
+        .collect();
+    if roots.is_empty() {
+        return roots;
+    }
+    let ids: Vec<String> = roots.iter().map(|(id, _)| id.clone()).collect();
+    archived.extend(archive_subtrees(tasks, &ids));
+    roots
 }
 
 pub fn cutoff_for_duration(value: &str) -> anyhow::Result<String> {

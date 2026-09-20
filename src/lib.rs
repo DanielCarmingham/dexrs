@@ -8,6 +8,7 @@ pub mod relations;
 mod show;
 mod status;
 pub mod store;
+pub mod sync;
 pub mod task;
 pub mod validate;
 

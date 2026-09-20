@@ -4,7 +4,18 @@ use anyhow::{anyhow, bail};
 
 use crate::task::Task;
 
-pub fn set_parent(tasks: &mut [Task], id: &str, parent_id: Option<&str>) -> anyhow::Result<()> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Placement {
+    Create,
+    Move,
+}
+
+pub fn set_parent(
+    tasks: &mut [Task],
+    id: &str,
+    parent_id: Option<&str>,
+    placement: Placement,
+) -> anyhow::Result<()> {
     if let Some(parent_id) = parent_id {
         if parent_id == id {
             bail!("task {id} cannot be its own parent");
@@ -13,7 +24,21 @@ pub fn set_parent(tasks: &mut [Task], id: &str, parent_id: Option<&str>) -> anyh
             anyhow!("task {parent_id} not found\nHint: The specified parent task does not exist")
         })?;
         if is_descendant(tasks, parent_id, id) {
-            bail!("task {parent_id} is a subtask of {id} and cannot become its parent");
+            bail!(
+                "Cannot set parent: would create a cycle\nHint: The selected parent is already a subtask of {id}"
+            );
+        }
+        let new_depth = ancestors(tasks, parent_id).len() + 2;
+        let below = max_descendant_depth(tasks, id);
+        if new_depth + below > MAX_DEPTH {
+            match placement {
+                Placement::Create => bail!(
+                    "Cannot create subtask: maximum depth (3 levels) reached\nHint: Tasks can only be nested 3 levels deep (epic → task → subtask)"
+                ),
+                Placement::Move => bail!(
+                    "Cannot move task: would exceed maximum depth (3 levels)\nHint: Tasks can only be nested 3 levels deep (epic → task → subtask)"
+                ),
+            }
         }
     }
 
@@ -63,6 +88,33 @@ pub fn remove_blocker(tasks: &mut [Task], id: &str, blocker_id: &str) -> anyhow:
         blocker.blocks.retain(|existing| existing != id);
     }
     Ok(())
+}
+
+pub const MAX_DEPTH: usize = 3;
+
+pub fn ancestors<'a>(tasks: &'a [Task], id: &str) -> Vec<&'a Task> {
+    let mut chain = Vec::new();
+    let mut current = tasks
+        .iter()
+        .find(|task| task.id == id)
+        .and_then(|task| task.parent_id.as_deref());
+    while let Some(parent_id) = current {
+        let Some(parent) = tasks.iter().find(|task| task.id == parent_id) else {
+            break;
+        };
+        chain.push(parent);
+        current = parent.parent_id.as_deref();
+    }
+    chain
+}
+
+pub fn max_descendant_depth(tasks: &[Task], id: &str) -> usize {
+    tasks
+        .iter()
+        .filter(|task| task.parent_id.as_deref() == Some(id))
+        .map(|child| 1 + max_descendant_depth(tasks, &child.id))
+        .max()
+        .unwrap_or(0)
 }
 
 pub fn subtree_ids<'a>(tasks: &'a [Task], root: &str) -> HashSet<&'a str> {

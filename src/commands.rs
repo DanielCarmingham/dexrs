@@ -41,6 +41,12 @@ where
         env_storage_path: env_storage_path.as_deref(),
     };
     let resolved_store = || store::resolve_store_dir(&std::env::current_dir()?, &resolution);
+    let write_options = || -> anyhow::Result<store::WriteOptions> {
+        let config = config::load(&std::env::current_dir()?, resolution.cli_config_path)?;
+        Ok(store::WriteOptions {
+            auto_archive: Some(config.archive),
+        })
+    };
 
     match command {
         Command::Completion { shell } => {
@@ -197,10 +203,10 @@ where
                 anyhow::bail!("task name is required\nUsage: dexrs create \"name\" [options]");
             };
             let store = resolved_store()?;
-            let (id, tasks) = store::transact(&store, |tasks| {
+            let (id, tasks) = store::transact_with(&store, &write_options()?, |tasks| {
                 let id = generate_id(|candidate| tasks.iter().any(|task| task.id == candidate));
                 tasks.push(Task::new(id.clone(), name, description, priority));
-                relations::set_parent(tasks, &id, parent.as_deref())?;
+                relations::set_parent(tasks, &id, parent.as_deref(), relations::Placement::Create)?;
                 for blocker in blocked_by
                     .iter()
                     .flat_map(|value| relations::split_ids(value))
@@ -235,34 +241,35 @@ where
                 .map(str::to_string)
                 .collect();
             let store = resolved_store()?;
-            let outcome = store::transact_with_archive(&store, |tasks, archived| {
-                let roots: Vec<String> = match &id {
-                    Some(id) => {
-                        archive::check_archivable(tasks, id)?;
-                        vec![id.clone()]
+            let outcome =
+                store::transact_with_archive(&store, &write_options()?, |tasks, archived| {
+                    let roots: Vec<String> = match &id {
+                        Some(id) => {
+                            archive::check_archivable(tasks, id)?;
+                            vec![id.clone()]
+                        }
+                        None => archive::bulk_candidates(tasks, cutoff.as_deref(), &except)
+                            .into_iter()
+                            .map(|task| task.id.clone())
+                            .collect(),
+                    };
+                    if roots.is_empty() {
+                        return Ok(None);
                     }
-                    None => archive::bulk_candidates(tasks, cutoff.as_deref(), &except)
-                        .into_iter()
-                        .map(|task| task.id.clone())
-                        .collect(),
-                };
-                if roots.is_empty() {
-                    return Ok(None);
-                }
-                let before = serialize_tasks_jsonl(tasks)?.len();
-                let mut preview = tasks.clone();
-                let records = archive::archive_subtrees(&mut preview, &roots);
-                let after = serialize_tasks_jsonl(&preview)?.len();
-                if !dry_run {
-                    *tasks = preview;
-                    archived.extend(records.iter().cloned());
-                }
-                Ok(Some(ArchiveOutcome {
-                    archived: records.len(),
-                    roots: roots.len(),
-                    reduction_percent: (before - after) * 100 / before.max(1),
-                }))
-            })?;
+                    let before = serialize_tasks_jsonl(tasks)?.len();
+                    let mut preview = tasks.clone();
+                    let records = archive::archive_subtrees(&mut preview, &roots);
+                    let after = serialize_tasks_jsonl(&preview)?.len();
+                    if !dry_run {
+                        *tasks = preview;
+                        archived.extend(records.iter().cloned());
+                    }
+                    Ok(Some(ArchiveOutcome {
+                        archived: records.len(),
+                        roots: roots.len(),
+                        reduction_percent: (before - after) * 100 / before.max(1),
+                    }))
+                })?;
             let Some(outcome) = outcome else {
                 writeln!(stdout, "No tasks found to archive.")?;
                 return Ok(0);
@@ -289,11 +296,11 @@ where
                 .with_context(|| format!("failed to read plan file {}", file.display()))?;
             let name = plan_name(&file, &contents);
             let store = resolved_store()?;
-            let (task, line) = store::transact(&store, |tasks| {
+            let (task, line) = store::transact_with(&store, &write_options()?, |tasks| {
                 let id = generate_id(|candidate| tasks.iter().any(|task| task.id == candidate));
                 let task = Task::new(id.clone(), name, Some(contents), priority);
                 tasks.push(task.clone());
-                relations::set_parent(tasks, &id, parent.as_deref())?;
+                relations::set_parent(tasks, &id, parent.as_deref(), relations::Placement::Create)?;
                 Ok((task, listing::task_line(tasks, &tasks[tasks.len() - 1])))
             })?;
             writeln!(stdout, "Created task {} from plan\n{line}", task.id)?;
@@ -301,7 +308,7 @@ where
         }
         Command::Start { id, force } => {
             let store = resolved_store()?;
-            let tasks = store::transact(&store, |tasks| {
+            let tasks = store::transact_with(&store, &write_options()?, |tasks| {
                 let now = timestamp();
                 let task = find_task_mut(tasks, &id)?;
                 if listing::is_in_progress(task) && !force {
@@ -336,39 +343,40 @@ where
                 .transpose()?;
             let store = resolved_store()?;
             let has_commit_decision = commit.is_some() || no_commit;
-            let (tasks, open_blockers) = store::transact(&store, |tasks| {
-                validate_completion(tasks, &id, force)?;
-                let existing = listing::find(tasks, &id)
-                    .ok_or_else(|| anyhow::anyhow!("task {id} not found"))?;
-                if existing.children.is_empty()
-                    && !has_commit_decision
-                    && let Some(link) = remote_link(existing)
-                {
-                    anyhow::bail!(
-                        "Task is linked to {link}.\n  \
+            let (tasks, open_blockers) =
+                store::transact_with(&store, &write_options()?, |tasks| {
+                    validate_completion(tasks, &id, force)?;
+                    let existing = listing::find(tasks, &id)
+                        .ok_or_else(|| anyhow::anyhow!("task {id} not found"))?;
+                    if existing.children.is_empty()
+                        && !has_commit_decision
+                        && let Some(link) = remote_link(existing)
+                    {
+                        anyhow::bail!(
+                            "Task is linked to {link}.\n  \
                          Use --commit <sha> to link a commit (closes issue when merged)\n  \
                          Use --no-commit to complete without a commit (issue stays open)"
-                    );
-                }
-                let open_blockers: Vec<(String, String)> = existing
-                    .blocked_by
-                    .iter()
-                    .filter_map(|blocker| listing::find(tasks, blocker))
-                    .filter(|blocker| !blocker.completed)
-                    .map(|blocker| (blocker.id.clone(), blocker.name.clone()))
-                    .collect();
-                let now = timestamp();
-                let task = find_task_mut(tasks, &id)?;
-                task.completed = true;
-                task.result = Some(result);
-                if let Some(commit) = commit {
-                    set_metadata(task, "commit", commit);
-                }
-                task.started_at.get_or_insert_with(|| now.clone());
-                task.completed_at = Some(now.clone());
-                task.updated_at = Some(now);
-                Ok((tasks.clone(), open_blockers))
-            })?;
+                        );
+                    }
+                    let open_blockers: Vec<(String, String)> = existing
+                        .blocked_by
+                        .iter()
+                        .filter_map(|blocker| listing::find(tasks, blocker))
+                        .filter(|blocker| !blocker.completed)
+                        .map(|blocker| (blocker.id.clone(), blocker.name.clone()))
+                        .collect();
+                    let now = timestamp();
+                    let task = find_task_mut(tasks, &id)?;
+                    task.completed = true;
+                    task.result = Some(result);
+                    if let Some(commit) = commit {
+                        set_metadata(task, "commit", commit);
+                    }
+                    task.started_at.get_or_insert_with(|| now.clone());
+                    task.completed_at = Some(now.clone());
+                    task.updated_at = Some(now);
+                    Ok((tasks.clone(), open_blockers))
+                })?;
             if !open_blockers.is_empty() {
                 writeln!(
                     stdout,
@@ -426,9 +434,9 @@ where
                 .map(|reference| git::commit_metadata(&std::env::current_dir()?, &reference))
                 .transpose()?;
             let store = resolved_store()?;
-            let tasks = store::transact(&store, |tasks| {
+            let tasks = store::transact_with(&store, &write_options()?, |tasks| {
                 if let Some(parent) = &parent {
-                    relations::set_parent(tasks, &id, Some(parent))?;
+                    relations::set_parent(tasks, &id, Some(parent), relations::Placement::Move)?;
                 }
                 for blocker in add_blocker
                     .iter()
@@ -466,7 +474,7 @@ where
         }
         Command::Delete { id, force } => {
             let store = resolved_store()?;
-            let removed = store::transact(&store, |tasks| {
+            let removed = store::transact_with(&store, &write_options()?, |tasks| {
                 find_task_mut(tasks, &id)?;
                 let subtree: std::collections::HashSet<String> = relations::subtree_ids(tasks, &id)
                     .into_iter()

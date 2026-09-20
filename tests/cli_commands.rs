@@ -1739,7 +1739,6 @@ fn show_json_is_enriched_like_original() {
     let mid = create(&store, &["Mid", "--parent", &root]);
     let leaf_done = create(&store, &["Leaf done", "--parent", &mid]);
     let leaf_open = create(&store, &["Leaf open", "--parent", &mid]);
-    let deep = create(&store, &["Deep", "--parent", &leaf_open]);
     let blocker_done = create(&store, &["Blocker done"]);
     let blocker_open = create(&store, &["Blocker open"]);
     let downstream = create(&store, &["Downstream", "--blocked-by", &mid]);
@@ -1776,9 +1775,7 @@ fn show_json_is_enriched_like_original() {
         json["subtasks"]["children"][0]["blockedBy"],
         serde_json::json!([])
     );
-    assert_eq!(json["grandchildren"]["pending"], 1);
-    assert_eq!(json["grandchildren"]["completed"], 0);
-    assert_eq!(json["grandchildren"]["tasks"][0]["id"], deep);
+    assert_eq!(json["grandchildren"], serde_json::Value::Null);
     assert_eq!(
         json["blockedBy"],
         serde_json::json!([{"id": blocker_open, "name": "Blocker open", "completed": false}])
@@ -1789,20 +1786,25 @@ fn show_json_is_enriched_like_original() {
     );
     assert_eq!(json["isBlocked"], true);
 
+    let top = show_json(&store, &[&root]);
+    assert_eq!(top["grandchildren"]["pending"], 1);
+    assert_eq!(top["grandchildren"]["completed"], 1);
+    assert_eq!(top["grandchildren"]["tasks"].as_array().unwrap().len(), 2);
+
     let expanded = show_json(&store, &[&mid, "--expand"]);
     assert_eq!(
         expanded["ancestors"],
         serde_json::json!([{"id": root, "name": "Root", "description": "root details"}])
     );
 
-    let leaf = show_json(&store, &[&deep]);
-    assert_eq!(leaf["depth"], 3);
+    let leaf = show_json(&store, &[&leaf_open]);
+    assert_eq!(leaf["depth"], 2);
     assert_eq!(leaf["grandchildren"], serde_json::Value::Null);
     assert_eq!(leaf["isBlocked"], false);
 
-    let both = show_json(&store, &[&root, &deep]);
+    let both = show_json(&store, &[&root, &leaf_open]);
     assert_eq!(both.as_array().unwrap().len(), 2);
-    assert_eq!(both[1]["depth"], 3);
+    assert_eq!(both[1]["depth"], 2);
 
     complete(&store, &blocker_open);
     dexrs(&store)
@@ -1824,7 +1826,6 @@ fn show_text_sections_match_original_layout() {
     let child_p2 = create(&store, &["Child p2", "--parent", &mid, "-p", "2"]);
     let child_done = create(&store, &["Child done", "--parent", &mid]);
     let child_open = create(&store, &["Child open", "--parent", &mid]);
-    let _grandchild = create(&store, &["Grandchild", "--parent", &child_open]);
     let blocker = create(&store, &["Blocker"]);
     dexrs(&store)
         .args(["edit", &mid, "--add-blocker", &blocker, "-d", "mid details"])
@@ -1846,7 +1847,7 @@ fn show_text_sections_match_original_layout() {
     let expected = format!(
         "[ ] {root}: Root\n\
          └── [ ] {mid}: Mid (3 subtasks)  ← viewing\n\
-         \x20   ├── [ ] {child_open}: Child open (1 subtask)\n\
+         \x20   ├── [ ] {child_open}: Child open\n\
          \x20   ├── [x] {child_done}: Child done\n\
          \x20   └── [ ] {child_p2}: Child p2\n\
          \n\
@@ -2131,4 +2132,142 @@ fn json_output_is_pretty_printed_in_record_order() {
 
     let status = status(&store, &["--json"]);
     assert!(status.starts_with("{\n  \"stats\": {\n    \"total\": 1,\n    \"pending\": 1,\n    \"completed\": 0,\n    \"blocked\": 0,\n    \"ready\": 1,\n    \"inProgress\": 0\n  },\n  \"inProgressTasks\": [],\n  \"readyTasks\": [\n"), "{status}");
+}
+
+#[test]
+fn config_exposes_sync_and_archive_keys() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = temp.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git_repo(&repo);
+    let config = |args: &[&str]| -> assert_cmd::assert::Assert {
+        bare(temp.path())
+            .current_dir(&repo)
+            .arg("config")
+            .args(args)
+            .assert()
+    };
+
+    for (key, value) in [
+        ("sync.shortcut.enabled", "true"),
+        ("sync.shortcut.token_env", "SC_TOKEN"),
+        ("sync.shortcut.team", "engineering"),
+        ("sync.shortcut.workspace", "acme"),
+        ("sync.shortcut.workflow", "500000001"),
+        ("sync.shortcut.label", "dex"),
+        ("sync.github.auto.max_age", "1h"),
+        ("archive.auto", "true"),
+        ("archive.age_days", "30"),
+        ("archive.keep_recent", "10"),
+    ] {
+        config(&[&format!("{key}={value}")]).success();
+        config(&[key]).success().stdout(format!("{value}\n"));
+    }
+    config(&["archive.age_days=lots"])
+        .failure()
+        .stderr(predicates::str::contains("Invalid number"));
+    let raw = std::fs::read_to_string(temp.path().join("dex-home/dex.toml")).unwrap();
+    assert!(raw.contains("age_days = 30"), "{raw}");
+}
+
+#[test]
+fn hierarchy_depth_is_limited_to_three_levels() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store");
+    let epic = create(&store, &["Epic"]);
+    let task_ = create(&store, &["Task", "--parent", &epic]);
+    let subtask = create(&store, &["Subtask", "--parent", &task_]);
+
+    dexrs(&store)
+        .args(["create", "Too deep", "--parent", &subtask])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("maximum depth (3 levels)"));
+
+    let loose = create(&store, &["Loose"]);
+    let loose_child = create(&store, &["Loose child", "--parent", &loose]);
+    dexrs(&store)
+        .args(["edit", &loose, "--parent", &task_])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("exceed maximum depth"));
+    assert_eq!(
+        task(&store, &loose_child).parent_id.as_deref(),
+        Some(loose.as_str())
+    );
+    dexrs(&store)
+        .args(["edit", &loose, "--parent", &epic])
+        .assert()
+        .success();
+}
+
+#[test]
+fn auto_archive_runs_on_write_when_enabled() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = temp.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git_repo(&repo);
+    let store = repo.join(".dex");
+    let run = || {
+        let mut cmd = bare(temp.path());
+        cmd.current_dir(&repo);
+        cmd
+    };
+    let ids: Vec<String> = (0..4)
+        .map(|i| {
+            let out = run()
+                .args(["create", &format!("Task {i}")])
+                .assert()
+                .success()
+                .get_output()
+                .stdout
+                .clone();
+            String::from_utf8(out)
+                .unwrap()
+                .lines()
+                .next()
+                .unwrap()
+                .rsplit(' ')
+                .next()
+                .unwrap()
+                .to_string()
+        })
+        .collect();
+    for id in &ids[..3] {
+        run().args(["complete", id, "-r", "x"]).assert().success();
+    }
+    let mut tasks = read_tasks(&store);
+    for (index, task) in tasks.iter_mut().enumerate() {
+        if task.completed {
+            task.completed_at = Some(format!("2020-01-0{}T00:00:00Z", index + 1));
+        }
+    }
+    std::fs::write(
+        store.join("tasks.jsonl"),
+        dexrs::task::serialize_tasks_jsonl(&tasks).unwrap(),
+    )
+    .unwrap();
+
+    run()
+        .args(["config", "--local", "archive.auto=true"])
+        .assert()
+        .success();
+    run()
+        .args(["config", "--local", "archive.keep_recent=1"])
+        .assert()
+        .success();
+    run()
+        .args(["config", "--local", "archive.age_days=30"])
+        .assert()
+        .success();
+
+    run().args(["create", "Trigger"]).assert().success();
+
+    let remaining: Vec<String> = read_tasks(&store).into_iter().map(|task| task.id).collect();
+    assert_eq!(remaining.len(), 3, "{remaining:?}");
+    assert!(remaining.contains(&ids[3]));
+    assert_eq!(archive_records(&store).len(), 2);
+    let log = std::fs::read_to_string(store.join("archive.log")).unwrap();
+    assert_eq!(log.lines().count(), 2);
+    assert!(log.contains("AUTO-ARCHIVED"), "{log}");
 }

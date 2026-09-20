@@ -39,6 +39,7 @@ pub struct KeySpec {
 pub enum Kind {
     String,
     Bool,
+    Number,
     Enum(&'static [&'static str]),
 }
 
@@ -75,6 +76,50 @@ pub const SCHEMA: &[KeySpec] = &[
         key: "sync.github.auto.max_age",
         kind: Kind::String,
     },
+    KeySpec {
+        key: "sync.shortcut.enabled",
+        kind: Kind::Bool,
+    },
+    KeySpec {
+        key: "sync.shortcut.token_env",
+        kind: Kind::String,
+    },
+    KeySpec {
+        key: "sync.shortcut.team",
+        kind: Kind::String,
+    },
+    KeySpec {
+        key: "sync.shortcut.workspace",
+        kind: Kind::String,
+    },
+    KeySpec {
+        key: "sync.shortcut.workflow",
+        kind: Kind::String,
+    },
+    KeySpec {
+        key: "sync.shortcut.label",
+        kind: Kind::String,
+    },
+    KeySpec {
+        key: "sync.shortcut.auto.on_change",
+        kind: Kind::Bool,
+    },
+    KeySpec {
+        key: "sync.shortcut.auto.max_age",
+        kind: Kind::String,
+    },
+    KeySpec {
+        key: "archive.auto",
+        kind: Kind::Bool,
+    },
+    KeySpec {
+        key: "archive.age_days",
+        kind: Kind::Number,
+    },
+    KeySpec {
+        key: "archive.keep_recent",
+        kind: Kind::Number,
+    },
 ];
 
 pub fn dex_home() -> anyhow::Result<PathBuf> {
@@ -100,6 +145,46 @@ pub struct Config {
     pub engine: String,
     pub storage_path: Option<PathBuf>,
     pub centralized: bool,
+    pub github: IntegrationConfig,
+    pub shortcut: IntegrationConfig,
+    pub archive: ArchiveConfig,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct IntegrationConfig {
+    pub enabled: bool,
+    pub token_env: Option<String>,
+    pub label_prefix: Option<String>,
+    pub label: Option<String>,
+    pub team: Option<String>,
+    pub workspace: Option<String>,
+    pub workflow: Option<String>,
+    /// None means the key is absent, which original dex treats as true.
+    pub auto_on_change: Option<bool>,
+    pub auto_max_age: Option<String>,
+}
+
+impl IntegrationConfig {
+    pub fn syncs_on_change(&self) -> bool {
+        self.auto_on_change != Some(false)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ArchiveConfig {
+    pub auto: bool,
+    pub age_days: i64,
+    pub keep_recent: usize,
+}
+
+impl Default for ArchiveConfig {
+    fn default() -> Self {
+        Self {
+            auto: false,
+            age_days: 90,
+            keep_recent: 50,
+        }
+    }
 }
 
 pub fn load(cwd: &Path, config_path: Option<&Path>) -> anyhow::Result<Config> {
@@ -122,13 +207,41 @@ pub fn load(cwd: &Path, config_path: Option<&Path>) -> anyhow::Result<Config> {
             "Unsupported storage engine: {engine}.\nOnly \"file\" storage is supported. Use sync.github for GitHub integration."
         );
     }
+    let text = |key: &str| {
+        lookup(&merged, key)
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    };
+    let flag = |key: &str| lookup(&merged, key).and_then(Value::as_bool);
+    let number = |key: &str| lookup(&merged, key).and_then(Value::as_integer);
+    let integration = |name: &str| IntegrationConfig {
+        enabled: flag(&format!("sync.{name}.enabled")).unwrap_or(false),
+        token_env: text(&format!("sync.{name}.token_env")),
+        label_prefix: text(&format!("sync.{name}.label_prefix")),
+        label: text(&format!("sync.{name}.label")),
+        team: text(&format!("sync.{name}.team")),
+        workspace: text(&format!("sync.{name}.workspace")),
+        workflow: lookup(&merged, &format!("sync.{name}.workflow")).map(|value| match value {
+            Value::String(text) => text.clone(),
+            other => other.to_string(),
+        }),
+        auto_on_change: flag(&format!("sync.{name}.auto.on_change")),
+        auto_max_age: text(&format!("sync.{name}.auto.max_age")),
+    };
+    let defaults = ArchiveConfig::default();
     Ok(Config {
         engine,
-        storage_path: lookup(&merged, "storage.file.path")
-            .and_then(Value::as_str)
-            .map(PathBuf::from),
-        centralized: lookup(&merged, "storage.file.mode").and_then(Value::as_str)
-            == Some("centralized"),
+        storage_path: text("storage.file.path").map(PathBuf::from),
+        centralized: text("storage.file.mode").as_deref() == Some("centralized"),
+        github: integration("github"),
+        shortcut: integration("shortcut"),
+        archive: ArchiveConfig {
+            auto: flag("archive.auto").unwrap_or(defaults.auto),
+            age_days: number("archive.age_days").unwrap_or(defaults.age_days),
+            keep_recent: number("archive.keep_recent")
+                .map(|value| value.max(0) as usize)
+                .unwrap_or(defaults.keep_recent),
+        },
     })
 }
 
@@ -170,6 +283,10 @@ pub fn parse_value(spec: &KeySpec, raw: &str) -> anyhow::Result<Value> {
             "false" | "0" | "no" => Ok(Value::Boolean(false)),
             _ => bail!("Invalid boolean value: \"{raw}\". Use true/false, 1/0, or yes/no."),
         },
+        Kind::Number => raw
+            .parse::<i64>()
+            .map(Value::Integer)
+            .map_err(|_| anyhow!("Invalid number value: \"{raw}\"")),
         Kind::Enum(options) if !options.contains(&raw) => bail!(
             "Invalid value \"{raw}\" for {}. Valid options: {}",
             spec.key,

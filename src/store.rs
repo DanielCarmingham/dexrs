@@ -108,22 +108,35 @@ pub fn read_archive(store_dir: &Path) -> anyhow::Result<Vec<ArchivedTask>> {
     }
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct WriteOptions {
+    pub auto_archive: Option<crate::config::ArchiveConfig>,
+}
+
 pub fn transact<F, T>(store_dir: &Path, f: F) -> anyhow::Result<T>
 where
     F: FnOnce(&mut Vec<Task>) -> anyhow::Result<T>,
 {
-    let _lock = lock_store(store_dir)?;
-    let mut tasks = read_tasks(store_dir)?;
-    let result = f(&mut tasks)?;
-    validate_tasks(&tasks)?;
-    write_atomic(store_dir, "tasks.jsonl", &serialize_tasks_jsonl(&tasks)?)?;
-    Ok(result)
+    transact_with(store_dir, &WriteOptions::default(), f)
 }
 
-/// Like [`transact`], but the closure may also append to the archive. Both
-/// files are rewritten under the same lock; the archive is written first so a
-/// crash between the two writes duplicates a record rather than losing one.
-pub fn transact_with_archive<F, T>(store_dir: &Path, f: F) -> anyhow::Result<T>
+pub fn transact_with<F, T>(store_dir: &Path, options: &WriteOptions, f: F) -> anyhow::Result<T>
+where
+    F: FnOnce(&mut Vec<Task>) -> anyhow::Result<T>,
+{
+    transact_with_archive(store_dir, options, |tasks, _| f(tasks))
+}
+
+/// Like [`transact_with`], but the closure may also append to the archive.
+/// Both files are rewritten under the same lock; the archive is written first
+/// so a crash between the two writes duplicates a record rather than losing
+/// one. Auto-archiving, when configured, runs after the closure like the
+/// original's write hook.
+pub fn transact_with_archive<F, T>(
+    store_dir: &Path,
+    options: &WriteOptions,
+    f: F,
+) -> anyhow::Result<T>
 where
     F: FnOnce(&mut Vec<Task>, &mut Vec<ArchivedTask>) -> anyhow::Result<T>,
 {
@@ -132,6 +145,13 @@ where
     let mut archive = read_archive(store_dir)?;
     let archive_len = archive.len();
     let result = f(&mut tasks, &mut archive)?;
+    if let Some(config) = &options.auto_archive {
+        let cwd = std::env::current_dir()?;
+        let roots = crate::archive::auto_archive(&mut tasks, &mut archive, config, &cwd);
+        if !roots.is_empty() {
+            append_archive_log(store_dir, &roots);
+        }
+    }
     validate_tasks(&tasks)?;
     if archive.len() != archive_len {
         write_atomic(
@@ -142,6 +162,21 @@ where
     }
     write_atomic(store_dir, "tasks.jsonl", &serialize_tasks_jsonl(&tasks)?)?;
     Ok(result)
+}
+
+fn append_archive_log(store_dir: &Path, roots: &[(String, String)]) {
+    let stamp = crate::task::timestamp();
+    let lines: String = roots
+        .iter()
+        .map(|(id, name)| format!("{stamp} AUTO-ARCHIVED {id}: {name}\n"))
+        .collect();
+    if let Ok(mut log) = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(store_dir.join("archive.log"))
+    {
+        let _ = log.write_all(lines.as_bytes());
+    }
 }
 
 fn lock_store(store_dir: &Path) -> anyhow::Result<File> {
