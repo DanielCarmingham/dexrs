@@ -89,7 +89,8 @@ where
             Ok(0)
         }
         Command::Version => {
-            writeln!(stdout, "{invoked_as} v{}", env!("CARGO_PKG_VERSION"))?;
+            // Always the real name: `dex version` must reveal it is dexrs.
+            writeln!(stdout, "dexrs v{}", env!("CARGO_PKG_VERSION"))?;
             Ok(0)
         }
         Command::Doctor { fix } => {

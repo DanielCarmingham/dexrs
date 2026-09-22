@@ -59,3 +59,35 @@ Keep output simple, clean, and agent-friendly. Use dextui as UX inspiration for
 status language and quiet terminal presentation, but do not build a TUI for the
 MVP.
 
+
+## Releasing
+
+The crate is published as **`dex-cli`** (the `dexrs` name on crates.io belongs
+to an unrelated Dexcom library); the binaries it installs are still `dexrs` and
+`dex`. A release goes out on three channels: crates.io, a GitHub Release with
+prebuilt binaries for four targets, and a Homebrew formula pushed to
+`DanielCarmingham/homebrew-tap`. Only the first is manual.
+
+```bash
+# 1. Bump the version in Cargo.toml and rename CHANGELOG.md's [Unreleased]
+#    heading to [<version>] - <YYYY-MM-DD>; commit both together. The tag will
+#    point at this commit, and dist builds the release notes from it.
+# 2. Verify:
+cargo test
+cargo clippy --all-targets -- -D warnings
+dist plan
+dist generate --check        # release.yml still matches dist-workspace.toml
+dist plan --output-format=json \
+  | python3 -c "import json,sys; print(json.load(sys.stdin).get('announcement_changelog') or 'NO RELEASE NOTES FOUND')"
+cargo publish --dry-run
+# 3. crates.io first, because it is the irreversible one.
+cargo publish
+# 4. Tag the exact commit that was published; the push triggers release.yml.
+git tag v<version>
+git push origin main v<version>
+gh run watch --repo DanielCarmingham/dexrs
+```
+
+`release.yml` is generated from `dist-workspace.toml` by `dist generate`;
+never hand-edit it. Cargo refuses to publish from a dirty tree, so the bump
+commit must land before any dry run.

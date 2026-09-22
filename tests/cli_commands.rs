@@ -2438,3 +2438,21 @@ fn doctor_detects_tasks_left_in_the_other_storage_mode() {
     assert_eq!(read_tasks(&central).len(), 1);
     assert!(stdout_of(run().arg("doctor").assert().success()).contains("No issues found."));
 }
+
+#[test]
+fn version_identifies_dexrs_even_when_invoked_as_dex() {
+    let temp = tempfile::tempdir().unwrap();
+    let expected = format!("dexrs v{}\n", env!("CARGO_PKG_VERSION"));
+    for args in [vec!["version"], vec!["--version"], vec!["-V"]] {
+        let out = assert_cmd::Command::cargo_bin("dex")
+            .unwrap()
+            .env("DEX_HOME", temp.path().join("dex-home"))
+            .args(&args)
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        assert_eq!(String::from_utf8(out).unwrap(), expected, "args {args:?}");
+    }
+}

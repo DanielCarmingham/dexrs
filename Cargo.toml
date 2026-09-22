@@ -1,8 +1,29 @@
 [package]
-name = "dexrs"
-version = "0.1.0"
+name = "dex-cli"
+version = "0.1.1"
 edition = "2024"
+description = "A Rust drop-in for the dex task CLI: same store, config, GitHub and Shortcut sync, and MCP server, with concurrent-safe writes"
 license = "MIT"
+repository = "https://github.com/DanielCarmingham/dexrs"
+# dist copies `homepage` into the Homebrew formula, and a formula without one
+# fails `brew audit`, so this stays set even while it duplicates `repository`.
+homepage = "https://github.com/DanielCarmingham/dexrs"
+readme = "README.md"
+keywords = ["tasks", "dex", "cli", "mcp", "github"]
+categories = ["command-line-utilities", "development-tools"]
+# Release plumbing and agent notes describe this repo, not the crate someone
+# is compiling; the specs and backlog only make sense with the git history.
+exclude = [
+    "AGENTS.md",
+    "backlog.md",
+    ".github/",
+    "dist-workspace.toml",
+    "docs/",
+    ".gitignore",
+]
+# Let chains (`if let ... && let ...`) stabilised in 1.88; edition 2024 alone
+# would only need 1.85.
+rust-version = "1.88"
 
 [dependencies]
 anyhow = "1.0"
@@ -23,6 +44,12 @@ ureq = { version = "3", features = ["json"] }
 assert_cmd = "2.0"
 mockito = "1"
 predicates = "3.1"
+
+# The package is dex-cli on crates.io, but the library, binaries, and
+# every `dexrs::` path keep the project's real name.
+[lib]
+name = "dexrs"
+path = "src/lib.rs"
 
 [[bin]]
 name = "dexrs"

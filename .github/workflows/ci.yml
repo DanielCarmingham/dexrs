@@ -1,0 +1,51 @@
+# Hand-written, unlike release.yml, which dist generates.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Linux carries the lint; clippy's findings are platform-independent.
+  linux:
+    name: test + clippy (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: git config --global user.name ci && git config --global user.email ci@example.invalid
+      - run: cargo test
+      - run: cargo clippy --all-targets -- -D warnings
+
+  # The store uses file locks and atomic renames, whose semantics differ per
+  # platform, and the concurrency tests exercise them for real.
+  macos:
+    name: test (macos)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: git config --global user.name ci && git config --global user.email ci@example.invalid
+      - run: cargo test
+
+  # The floor Cargo.toml claims, checked rather than asserted.
+  msrv:
+    name: build on the declared MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@1.88
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked

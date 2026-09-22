@@ -1,22 +1,35 @@
 # dexrs
 
-Rust implementation of the local dex CLI workflow. The MVP stores tasks in
-dex-compatible `.dex/tasks.jsonl` files and wraps every mutation in a locked,
-atomic JSONL transaction.
+A Rust drop-in for the [dex](https://github.com/dcramer/dex) task CLI. It
+reads and writes the same `.dex/tasks.jsonl` store, config files, archive,
+GitHub Issues and Shortcut Stories formats, and speaks the same MCP protocol,
+with every mutation wrapped in a locked, atomic transaction so concurrent
+agents cannot lose each other's writes.
 
-## Install From Source
+## Install
+
+The crate is published as `dex-cli` (the `dexrs` name on crates.io belongs to
+an unrelated library). Every route installs the same two binaries into
+`~/.cargo/bin`:
 
 ```bash
+cargo install dex-cli
+# or
+brew install DanielCarmingham/tap/dex-cli
+# or, prebuilt binaries via the shell installer from the latest GitHub Release:
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/DanielCarmingham/dexrs/releases/latest/download/dex-cli-installer.sh | sh
+# or from a checkout:
 cargo install --path .
 ```
-
-This installs two binaries:
 
 - `dexrs`: canonical binary
 - `dex`: compatibility binary that runs the same CLI code
 
-Which `dex` runs depends on PATH order. This project does not modify, move, or
-uninstall any existing npm/pnpm dex installation.
+Which `dex` runs depends on PATH order. Installing does not modify, move, or
+uninstall an existing npm/pnpm dex; remove that yourself (`pnpm remove -g
+@zeeg/dex`) to switch over. `dex version` always reports `dexrs v<version>`
+so you can tell which one answered.
 
 ## Implemented Commands
 
