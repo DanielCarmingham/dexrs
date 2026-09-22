@@ -14,11 +14,20 @@ placeholder line would ship as the notes.
 The link definitions sit here, above the sections, because dist treats
 everything after the last heading as part of the last release's notes.
 
-[Unreleased]: https://github.com/DanielCarmingham/dexrs/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/DanielCarmingham/dexrs/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/DanielCarmingham/dexrs/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/DanielCarmingham/dexrs/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/DanielCarmingham/dexrs/releases/tag/v0.1.0
 
 ## [Unreleased]
+
+## [0.1.2] - 2026-09-22
+
+### Fixed
+
+- Release builds: the `dist` profile was missing from `Cargo.toml`, so the
+  v0.1.1 GitHub Release and Homebrew formula never built. crates.io 0.1.1 is
+  unaffected.
 
 ## [0.1.1] - 2026-09-22
 

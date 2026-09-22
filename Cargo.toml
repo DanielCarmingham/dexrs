@@ -1,6 +1,6 @@
 [package]
 name = "dex-cli"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "A Rust drop-in for the dex task CLI: same store, config, GitHub and Shortcut sync, and MCP server, with concurrent-safe writes"
 license = "MIT"
@@ -58,3 +58,8 @@ path = "src/bin/dexrs.rs"
 [[bin]]
 name = "dex"
 path = "src/bin/dex.rs"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
