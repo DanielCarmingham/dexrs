@@ -24,6 +24,9 @@ everything after the last heading as part of the last release's notes.
 ### Changed
 
 - README credits the original dex project and states the version tracked.
+- Repository root discovery walks up the directory tree for a `.git` entry,
+  as the original does, instead of spawning `git rev-parse` twice per
+  command. `dexrs list` goes from about 39 ms to 12 ms.
 
 ## [0.1.2] - 2026-09-22
 
