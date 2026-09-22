@@ -6,6 +6,28 @@ GitHub Issues and Shortcut Stories formats, and speaks the same MCP protocol,
 with every mutation wrapped in a locked, atomic transaction so concurrent
 agents cannot lose each other's writes.
 
+## Relationship to dex
+
+dex is [David Cramer](https://github.com/dcramer)'s task tracker for coding
+agents, published on npm as [`@zeeg/dex`](https://www.npmjs.com/package/@zeeg/dex)
+and documented at [dex.rip](https://dex.rip/). dexrs is an independent
+reimplementation of its command-line interface in Rust. It tracks
+**dex v0.16** and reproduces its behaviour closely enough that the two can be
+swapped underneath the same store, skills, and instructions:
+
+- Same on-disk formats: `tasks.jsonl`, `archive.jsonl`, `dex.toml`,
+  `.dex/config.toml`, and `sync-state.json`.
+- Same GitHub issue and Shortcut story bodies, so either tool can sync a
+  remote the other created.
+- Same command names, flags, output wording, and JSON shapes.
+
+Where dexrs deliberately differs, it says so in the changelog: writes are
+locked and atomic, repeated syncs are idempotent, `delete` refuses instead of
+prompting, and `doctor` still runs when the config file is broken.
+
+Both projects are MIT licensed. The name `dex` belongs to the original; this
+crate ships a `dex` binary purely so existing instructions keep working.
+
 ## Install
 
 The crate is published as `dex-cli` (the `dexrs` name on crates.io belongs to

@@ -21,6 +21,10 @@ everything after the last heading as part of the last release's notes.
 
 ## [Unreleased]
 
+### Changed
+
+- README credits the original dex project and states the version tracked.
+
 ## [0.1.2] - 2026-09-22
 
 ### Fixed
